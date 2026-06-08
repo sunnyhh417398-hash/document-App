@@ -1,0 +1,15 @@
+{
+  "name": "document-app",
+  "version": "1.0.0",
+  "description": "公文系統 - 公文製作與簽核流程管理（零外部相依套件）",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

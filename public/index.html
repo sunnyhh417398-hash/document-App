@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>公文系統</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📜</span>
+      <div>
+        <h1>公文系統</h1>
+        <p class="subtitle">公文製作 · 簽核流程 · 收發管理</p>
+      </div>
+    </div>
+    <button id="btn-new" class="btn btn-primary">＋ 新增公文</button>
+  </header>
+
+  <section class="stats" id="stats"><!-- 統計卡片 --></section>
+
+  <section class="toolbar">
+    <input type="search" id="search" placeholder="搜尋主旨 / 文號 / 受文者 / 承辦人…" />
+    <select id="filter-status"><option value="">全部狀態</option></select>
+    <select id="filter-type"><option value="">全部類別</option></select>
+  </section>
+
+  <main>
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th>文號</th><th>類別</th><th>主旨</th><th>受文者</th>
+          <th>速別</th><th>承辦人</th><th>狀態</th><th>更新時間</th>
+        </tr>
+      </thead>
+      <tbody id="doc-list">
+        <tr><td colspan="8" class="empty">載入中…</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <!-- 編輯 / 新增 對話框 -->
+  <div class="modal-backdrop" id="modal-edit" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="edit-title">新增公文</h2>
+        <button class="btn-close" data-close>✕</button>
+      </div>
+      <form id="doc-form" class="modal-body">
+        <input type="hidden" id="f-id" />
+        <div class="grid">
+          <label>公文類別<select id="f-type"></select></label>
+          <label>速別<select id="f-priority"></select></label>
+          <label>密等<select id="f-classification"></select></label>
+        </div>
+        <label>主旨 <span class="req">*</span>
+          <input type="text" id="f-subject" required maxlength="200" placeholder="例：函送本年度預算執行報告" />
+        </label>
+        <div class="grid">
+          <label>發文者<input type="text" id="f-sender" placeholder="發文機關 / 單位" /></label>
+          <label>受文者<input type="text" id="f-recipient" placeholder="收文機關 / 單位" /></label>
+        </div>
+        <label>本文 / 說明
+          <textarea id="f-body" rows="6" placeholder="一、…&#10;二、…"></textarea>
+        </label>
+        <label>承辦人<input type="text" id="f-handler" placeholder="姓名" /></label>
+        <p class="form-error" id="form-error" hidden></p>
+        <div class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="submit" class="btn btn-primary">儲存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 檢視 / 簽核 對話框 -->
+  <div class="modal-backdrop" id="modal-view" hidden>
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h2>公文檢視</h2>
+        <button class="btn-close" data-close>✕</button>
+      </div>
+      <div class="modal-body" id="view-body"><!-- 動態 --></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
