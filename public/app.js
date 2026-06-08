@@ -75,10 +75,23 @@ async function init() {
   $('#user-chip').textContent = `${ME.name}（${ME.roleLabel}）`;
   $('#btn-new').hidden = !can('create');
   $('#btn-audit').hidden = !can('audit');
+  $('#btn-users').hidden = !can('users');
 
   $('#btn-new').addEventListener('click', () => openEdit());
   $('#btn-audit').addEventListener('click', openAudit);
   $('#btn-audit-export').addEventListener('click', () => { window.location = '/api/audit/export'; });
+  $('#btn-users').addEventListener('click', openUsers);
+  $('#btn-password').addEventListener('click', openPassword);
+  $('#password-form').addEventListener('submit', onChangePassword);
+  $('#btn-add-user').addEventListener('click', toggleAddUser);
+  $('#u-cancel').addEventListener('click', toggleAddUser);
+  $('#add-user-form').addEventListener('submit', onCreateUser);
+  // 角色下拉（新增使用者用）
+  const ur = $('#u-role');
+  Object.entries(META.roles).forEach(([k, v]) => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = v; ur.appendChild(o);
+  });
   $('#doc-form').addEventListener('submit', onSave);
   $('#f-direction').addEventListener('change', toggleIncoming);
   $('#btn-add-stage').addEventListener('click', () => addStageRow());
@@ -565,6 +578,124 @@ function printDoc(d, asPdf) {
   w.document.write(buildPrintHTML(d));
   w.document.close();
   if (asPdf) toast('於列印視窗選擇「另存為 PDF」即可匯出');
+}
+
+// ---- 使用者管理 ----
+function toggleAddUser() {
+  const f = $('#add-user-form');
+  f.hidden = !f.hidden;
+  if (!f.hidden) {
+    $('#u-username').value = '';
+    $('#u-name').value = '';
+    $('#u-password').value = '';
+    $('#user-form-error').hidden = true;
+    $('#u-username').focus();
+  }
+}
+
+async function openUsers() {
+  await loadUsers();
+  $('#add-user-form').hidden = true;
+  show('#modal-users');
+}
+
+async function loadUsers() {
+  const users = await api('GET', '/api/users');
+  const roleOpts = (sel) => Object.entries(META.roles)
+    .map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  $('#users-rows').innerHTML = users.map((u) => {
+    const self = u.id === ME.id;
+    return `<tr class="${u.active ? '' : 'row-inactive'}">
+      <td>${esc(u.name)}${self ? ' <span class="self-tag">（您）</span>' : ''}</td>
+      <td>${esc(u.username)}</td>
+      <td><select class="u-role-sel" data-id="${u.id}" ${self ? 'disabled' : ''}>${roleOpts(u.role)}</select></td>
+      <td><span class="badge ${u.active ? 'st-approved' : 'st-returned'}">${u.active ? '啟用' : '停用'}</span></td>
+      <td class="user-ops">
+        <button class="btn btn-sm" data-act="toggle" data-id="${u.id}" ${self ? 'disabled' : ''}>${u.active ? '停用' : '啟用'}</button>
+        <button class="btn btn-sm" data-act="pw" data-id="${u.id}">重設密碼</button>
+        <button class="btn btn-sm btn-danger" data-act="del" data-id="${u.id}" ${self ? 'disabled' : ''}>刪除</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  $$('#users-rows .u-role-sel').forEach((s) =>
+    s.addEventListener('change', () => updateUser(s.dataset.id, { role: s.value })));
+  $$('#users-rows [data-act]').forEach((b) =>
+    b.addEventListener('click', () => userOp(b.dataset.act, b.dataset.id)));
+}
+
+async function userOp(act, id) {
+  const row = $$('#users-rows tr').find((tr) => tr.querySelector(`[data-id="${id}"]`));
+  const active = row && row.querySelector('.badge').textContent === '啟用';
+  if (act === 'toggle') return updateUser(id, { active: !active });
+  if (act === 'del') {
+    if (!confirm('確定要刪除這個帳號嗎？此動作無法復原。')) return;
+    try { await api('DELETE', '/api/users/' + id); toast('已刪除使用者'); loadUsers(); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (act === 'pw') {
+    const pw = prompt('請輸入新密碼（至少 6 碼）：');
+    if (!pw) return;
+    try { await api('POST', `/api/users/${id}/password`, { password: pw }); toast('已重設密碼'); }
+    catch (err) { toast(err.message, true); }
+  }
+}
+
+async function updateUser(id, fields) {
+  try { await api('PUT', '/api/users/' + id, fields); toast('已更新使用者'); loadUsers(); }
+  catch (err) { toast(err.message, true); loadUsers(); }
+}
+
+async function onCreateUser(e) {
+  e.preventDefault();
+  const errEl = $('#user-form-error');
+  errEl.hidden = true;
+  try {
+    await api('POST', '/api/users', {
+      username: $('#u-username').value.trim(),
+      name: $('#u-name').value.trim(),
+      role: $('#u-role').value,
+      password: $('#u-password').value,
+    });
+    toast('已新增使用者');
+    $('#add-user-form').hidden = true;
+    loadUsers();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  }
+}
+
+// ---- 修改自己密碼 ----
+function openPassword() {
+  $('#p-current').value = '';
+  $('#p-new').value = '';
+  $('#p-confirm').value = '';
+  $('#password-error').hidden = true;
+  show('#modal-password');
+}
+
+async function onChangePassword(e) {
+  e.preventDefault();
+  const errEl = $('#password-error');
+  errEl.hidden = true;
+  if ($('#p-new').value !== $('#p-confirm').value) {
+    errEl.textContent = '兩次輸入的新密碼不一致';
+    errEl.hidden = false;
+    return;
+  }
+  try {
+    await api('POST', '/api/me/password', {
+      currentPassword: $('#p-current').value,
+      newPassword: $('#p-new').value,
+    });
+    closeModals();
+    toast('密碼已更新');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  }
 }
 
 // ---- Modal 控制 ----

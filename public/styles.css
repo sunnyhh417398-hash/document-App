@@ -267,3 +267,15 @@ main { padding: 0 28px 40px; }
 #modal-audit .modal-head > div { display: flex; align-items: center; gap: 12px; }
 #audit-table { font-size: 12.5px; }
 #audit-table .empty { text-align: center; color: var(--muted); padding: 24px; }
+
+/* 使用者管理 */
+#modal-users .modal-head > div { display: flex; align-items: center; gap: 12px; }
+#add-user-form { margin-bottom: 16px; }
+#add-user-form legend { font-size: 13px; font-weight: 700; color: var(--primary); padding: 0 6px; }
+.user-add-actions { display: flex; align-items: flex-end; gap: 8px; }
+.user-add-actions .btn { padding: 9px 16px; }
+.u-role-sel { padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; }
+.user-ops { display: flex; gap: 6px; flex-wrap: wrap; }
+.user-ops .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.row-inactive { background: #faf6f6; color: var(--muted); }
+.self-tag { color: var(--primary); font-size: 12px; }

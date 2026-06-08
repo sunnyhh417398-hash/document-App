@@ -208,6 +208,10 @@ async function handleAuthRoutes(req, res, url, user) {
       recordAudit(req, u ? auth.publicUser(u) : null, '登入失敗', null, `帳號：${body.username || ''}`);
       return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
     }
+    if (u.active === false) {
+      recordAudit(req, auth.publicUser(u), '登入遭拒', null, '帳號已停用');
+      return sendJSON(res, 403, { error: '帳號已停用，請聯絡管理員' });
+    }
     const token = auth.createSession(u);
     recordAudit(req, auth.publicUser(u), '登入成功', null, '');
     const cookie = `sid=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=43200`;
@@ -225,7 +229,125 @@ async function handleAuthRoutes(req, res, url, user) {
     return sendJSON(res, 200, user);
   }
 
+  // 使用者自行修改密碼
+  if (resource === 'me' && parts[2] === 'password' && req.method === 'POST') {
+    if (!user) return sendJSON(res, 401, { error: '未登入' });
+    const body = await readBody(req);
+    const full = auth.findById(user.id);
+    if (!full || !auth.verifyPassword(body.currentPassword, full.password)) {
+      return sendJSON(res, 400, { error: '目前密碼錯誤' });
+    }
+    if (!body.newPassword || String(body.newPassword).length < 6) {
+      return sendJSON(res, 400, { error: '新密碼至少 6 碼' });
+    }
+    const users = auth.loadUsers();
+    const u = users.find((x) => x.id === user.id);
+    u.password = auth.hashPassword(body.newPassword);
+    u.updatedAt = nowISO();
+    auth.saveUsers(users);
+    recordAudit(req, user, '修改自己的密碼', null, '');
+    return sendJSON(res, 200, { ok: true });
+  }
+
   return null; // 非身分路由
+}
+
+// ---- 使用者管理路由（管理員）------------------------------------------------
+
+const VALID_ROLES = Object.keys(auth.ROLES);
+
+async function handleUserRoutes(req, res, url, user) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[1] !== 'users') return null;
+  if (!auth.can(user, 'users')) return sendJSON(res, 403, { error: '權限不足' });
+
+  const id = parts[2];
+  const sub = parts[3]; // 'password'
+
+  // /api/users
+  if (!id) {
+    if (req.method === 'GET') {
+      return sendJSON(res, 200, (auth.loadUsers() || []).map(auth.listUser));
+    }
+    if (req.method === 'POST') {
+      const body = await readBody(req);
+      const username = String(body.username || '').trim();
+      const name = String(body.name || '').trim();
+      const role = body.role;
+      if (!username || !name) return sendJSON(res, 400, { error: '帳號與姓名為必填' });
+      if (!VALID_ROLES.includes(role)) return sendJSON(res, 400, { error: '角色不正確' });
+      if (!body.password || String(body.password).length < 6) return sendJSON(res, 400, { error: '密碼至少 6 碼' });
+      if (auth.usernameExists(username)) return sendJSON(res, 409, { error: '帳號已存在' });
+      const users = auth.loadUsers() || [];
+      const u = {
+        id: crypto.randomUUID(), username, name, role,
+        password: auth.hashPassword(body.password),
+        active: true, createdAt: nowISO(),
+      };
+      users.push(u);
+      auth.saveUsers(users);
+      recordAudit(req, user, '新增使用者', null, `${name}（${username}/${auth.ROLES[role]}）`);
+      return sendJSON(res, 201, auth.listUser(u));
+    }
+    return sendJSON(res, 405, { error: '不支援的方法' });
+  }
+
+  // /api/users/:id
+  const users = auth.loadUsers() || [];
+  const target = users.find((u) => u.id === id);
+  if (!target) return sendJSON(res, 404, { error: '查無此使用者' });
+
+  // 重設密碼
+  if (sub === 'password' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.password || String(body.password).length < 6) return sendJSON(res, 400, { error: '密碼至少 6 碼' });
+    target.password = auth.hashPassword(body.password);
+    target.updatedAt = nowISO();
+    auth.saveUsers(users);
+    auth.destroyUserSessions(target.id); // 強制重新登入
+    recordAudit(req, user, '重設密碼', null, `${target.name}（${target.username}）`);
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  if (req.method === 'PUT') {
+    const body = await readBody(req);
+    const newRole = body.role !== undefined ? body.role : target.role;
+    const newActive = body.active !== undefined ? !!body.active : target.active !== false;
+    if (!VALID_ROLES.includes(newRole)) return sendJSON(res, 400, { error: '角色不正確' });
+    // 防呆：不可停用或降級自己
+    if (target.id === user.id && (newActive === false || newRole !== 'admin')) {
+      return sendJSON(res, 409, { error: '不可停用或變更自己的管理員身分' });
+    }
+    // 防呆：保留至少一名可登入的管理員
+    const losingAdmin = target.role === 'admin' && (newRole !== 'admin' || newActive === false);
+    if (losingAdmin && auth.activeAdminCount(target.id) === 0) {
+      return sendJSON(res, 409, { error: '系統須保留至少一名啟用中的管理員' });
+    }
+    const roleChanged = newRole !== target.role;
+    const deactivated = target.active !== false && newActive === false;
+    if (body.name !== undefined) target.name = String(body.name).trim() || target.name;
+    target.role = newRole;
+    target.active = newActive;
+    target.updatedAt = nowISO();
+    auth.saveUsers(users);
+    if (roleChanged || deactivated) auth.destroyUserSessions(target.id);
+    recordAudit(req, user, '更新使用者', null,
+      `${target.name}（${target.username}）→ ${auth.ROLES[newRole]} / ${newActive ? '啟用' : '停用'}`);
+    return sendJSON(res, 200, auth.listUser(target));
+  }
+
+  if (req.method === 'DELETE') {
+    if (target.id === user.id) return sendJSON(res, 409, { error: '不可刪除自己的帳號' });
+    if (target.role === 'admin' && auth.activeAdminCount(target.id) === 0) {
+      return sendJSON(res, 409, { error: '系統須保留至少一名啟用中的管理員' });
+    }
+    auth.saveUsers(users.filter((u) => u.id !== id));
+    auth.destroyUserSessions(target.id);
+    recordAudit(req, user, '刪除使用者', null, `${target.name}（${target.username}）`);
+    return sendJSON(res, 200, { deleted: id });
+  }
+
+  return sendJSON(res, 405, { error: '不支援的方法' });
 }
 
 // ---- 稽核路由（管理員）-------------------------------------------------------
@@ -271,6 +393,9 @@ async function handleApi(req, res, url) {
 
   // 稽核
   if (resource === 'audit') return handleAuditRoutes(req, res, url, user);
+
+  // 使用者管理
+  if (resource === 'users') return handleUserRoutes(req, res, url, user);
 
   if (resource === 'meta' && req.method === 'GET') {
     return sendJSON(res, 200, {

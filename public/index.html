@@ -31,9 +31,11 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button id="btn-users" class="btn" hidden>使用者管理</button>
       <button id="btn-audit" class="btn" hidden>稽核軌跡</button>
       <button id="btn-new" class="btn btn-primary">＋ 新增公文</button>
       <span class="user-chip" id="user-chip"></span>
+      <button id="btn-password" class="btn btn-ghost">改密碼</button>
       <button id="btn-logout" class="btn btn-ghost">登出</button>
     </div>
   </header>
@@ -146,6 +148,61 @@
           <tbody id="audit-rows"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- 使用者管理 對話框 -->
+  <div class="modal-backdrop" id="modal-users" hidden>
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h2>使用者管理</h2>
+        <div>
+          <button class="btn btn-act btn-sm" id="btn-add-user">＋ 新增使用者</button>
+          <button class="btn-close" data-close>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <form id="add-user-form" class="subform" hidden>
+          <legend>新增使用者</legend>
+          <div class="grid">
+            <label>帳號<input type="text" id="u-username" autocomplete="off" /></label>
+            <label>姓名<input type="text" id="u-name" /></label>
+            <label>角色<select id="u-role"></select></label>
+          </div>
+          <div class="grid grid-2">
+            <label>密碼<input type="password" id="u-password" autocomplete="new-password" placeholder="至少 6 碼" /></label>
+            <div class="user-add-actions">
+              <button type="submit" class="btn btn-primary">建立</button>
+              <button type="button" class="btn" id="u-cancel">取消</button>
+            </div>
+          </div>
+          <p class="form-error" id="user-form-error" hidden></p>
+        </form>
+        <table class="mini-table" id="users-table">
+          <thead><tr><th>姓名</th><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+          <tbody id="users-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 修改自己密碼 對話框 -->
+  <div class="modal-backdrop" id="modal-password" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>修改密碼</h2>
+        <button class="btn-close" data-close>✕</button>
+      </div>
+      <form class="modal-body" id="password-form">
+        <label>目前密碼<input type="password" id="p-current" autocomplete="current-password" required /></label>
+        <label>新密碼<input type="password" id="p-new" autocomplete="new-password" required placeholder="至少 6 碼" /></label>
+        <label>確認新密碼<input type="password" id="p-confirm" autocomplete="new-password" required /></label>
+        <p class="form-error" id="password-error" hidden></p>
+        <div class="modal-foot">
+          <button type="button" class="btn" data-close>取消</button>
+          <button type="submit" class="btn btn-primary">儲存</button>
+        </div>
+      </form>
     </div>
   </div>
 
