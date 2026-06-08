@@ -1,0 +1,71 @@
+name: Build Desktop App
+
+# 觸發時機：
+#  - 推送 v* 版本標籤（如 v1.0.0）→ 打包並建立 GitHub Release 附上安裝檔
+#  - 手動執行（Actions 頁面的 Run workflow）→ 僅打包並上傳為 artifact
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 打包（${{ matrix.platform }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: 取出原始碼
+        uses: actions/checkout@v4
+
+      - name: 安裝 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 安裝相依套件
+        run: npm install
+
+      - name: 打包安裝檔
+        run: npm run dist:${{ matrix.platform }}
+        env:
+          # 提供給 electron-builder 發佈 Release 用
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 未設定 Apple 憑證時關閉自動簽章，避免 macOS 打包失敗
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: 上傳為 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 公文系統-${{ matrix.platform }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: ignore
+
+      - name: 附加到 Release（僅標籤觸發）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

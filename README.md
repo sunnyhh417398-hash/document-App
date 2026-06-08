@@ -79,6 +79,19 @@ npm run dist         # 產生目前作業系統的安裝檔，輸出於 dist/
 
 指定平台：`npm run dist:win`（Windows `.exe` 安裝檔）、`npm run dist:mac`（macOS `.dmg`）、`npm run dist:linux`（`AppImage` / `.deb`）。
 
+### 用 GitHub Actions 自動打包三平台
+
+專案內含 `.github/workflows/build-desktop.yml`，可在雲端同時為 Windows／macOS／Linux 打包，免在每台機器各跑一次：
+
+- **手動打包**：到 GitHub 專案的 **Actions → Build Desktop App → Run workflow**，完成後於該次執行頁面的 **Artifacts** 下載各平台安裝檔。
+- **發版打包**：推送 `v` 開頭的版本標籤，會自動建立 GitHub Release 並附上三平台安裝檔：
+  ```bash
+  git tag v1.0.0
+  git push origin v1.0.0
+  ```
+
+> 使用 GitHub 內建的 `GITHUB_TOKEN`，無需額外設定金鑰；macOS 未提供 Apple 簽章憑證時會自動略過簽章。
+
 - 資料儲存於使用者資料夾（不會寫入安裝目錄）：
   - Windows：`%APPDATA%/公文系統/data`
   - macOS：`~/Library/Application Support/公文系統/data`
