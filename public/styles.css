@@ -288,3 +288,30 @@ main { padding: 0 28px 40px; }
 .user-ops .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 .row-inactive { background: #faf6f6; color: var(--muted); }
 .self-tag { color: var(--primary); font-size: 12px; }
+.u-email { width: 100%; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; }
+
+/* 通知鈴鐺 */
+.notif-btn { position: relative; font-size: 16px; padding: 6px 10px; }
+#notif-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 17px; height: 17px;
+  background: var(--danger); color: #fff; border-radius: 9px; font-size: 11px;
+  line-height: 17px; text-align: center; padding: 0 4px; font-weight: 700;
+}
+#modal-notif .modal-head > div { display: flex; align-items: center; gap: 12px; }
+.notif-list { list-style: none; padding: 0; margin: 0; }
+.notif-list li { padding: 10px 12px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
+.notif-list li[data-doc] { cursor: pointer; }
+.notif-list li[data-doc]:hover { background: #f7f9fc; }
+.notif-list li.unread { border-left-color: var(--primary); background: #f3f8fd; }
+.notif-list li.empty { color: var(--muted); text-align: center; border: none; padding: 24px; }
+.notif-title { font-weight: 600; font-size: 14px; }
+.notif-body { font-size: 13px; color: #444; }
+.notif-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* 範本套用 */
+.tpl-pick { background: #f3f8fd; border: 1px solid #d4e6f8; border-radius: 6px; padding: 8px 12px; }
+#modal-templates .empty { text-align: center; color: var(--muted); padding: 24px; }
+
+/* 全文檢索高亮與摘要 */
+mark { background: #fff1a8; color: inherit; padding: 0 1px; border-radius: 2px; }
+.search-snippet { font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 3px; }

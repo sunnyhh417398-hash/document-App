@@ -3,6 +3,8 @@
 // ---- 全域狀態 ----
 let META = { docTypes: [], priorities: [], classifications: [], directions: [], statuses: {}, actions: {} };
 let ME = null; // 目前登入者 { id, name, role, roleLabel, caps }
+let TEMPLATES = [];
+let LAST_QUERY = '';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -56,6 +58,44 @@ function docNoLabel(d) {
   return d.direction === '收文' ? '（未編號）' : '（未發文）';
 }
 
+// 全文檢索：高亮關鍵字 + 命中主旨外欄位時顯示摘要
+function queryTerms() { return (LAST_QUERY || '').split(/\s+/).filter(Boolean); }
+
+function highlight(text) {
+  const safe = esc(text);
+  const terms = queryTerms();
+  if (!terms.length) return safe;
+  const pattern = terms
+    .map((t) => esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .filter(Boolean).join('|');
+  if (!pattern) return safe;
+  try { return safe.replace(new RegExp('(' + pattern + ')', 'gi'), '<mark>$1</mark>'); }
+  catch (e) { return safe; }
+}
+
+function subjectCell(d) {
+  const terms = queryTerms();
+  let html = highlight(d.subject);
+  if (terms.length) {
+    const subjLow = (d.subject || '').toLowerCase();
+    // 摘要來源：本文、會簽意見、處理歷程意見
+    const sources = [d.body, ...(d.route || []).map((r) => r.note), ...(d.history || []).map((h) => h.note)].filter(Boolean);
+    for (const t of terms) {
+      if (subjLow.includes(t.toLowerCase())) continue; // 主旨已含此詞
+      for (const src of sources) {
+        const i = src.toLowerCase().indexOf(t.toLowerCase());
+        if (i >= 0) {
+          const start = Math.max(0, i - 12);
+          const seg = (start > 0 ? '…' : '') + src.slice(start, i + t.length + 20) + '…';
+          html += `<div class="search-snippet">${highlight(seg)}</div>`;
+          return html;
+        }
+      }
+    }
+  }
+  return html;
+}
+
 const DUE_LABEL = { overdue: '已逾期', soon: '即將到期' };
 function dueMetaLabel(d) {
   if (!d.dueDate) return '';
@@ -85,10 +125,13 @@ async function init() {
   });
 
   // 使用者資訊與權限門禁
+  const isAdmin = ME.role === 'admin';
   $('#user-chip').textContent = `${ME.name}（${ME.roleLabel}）`;
   $('#btn-new').hidden = !can('create');
   $('#btn-audit').hidden = !can('audit');
   $('#btn-users').hidden = !can('users');
+  $('#btn-templates').hidden = !isAdmin;
+  $('#btn-save-template').hidden = !isAdmin;
 
   $('#btn-new').addEventListener('click', () => openEdit());
   $('#btn-audit').addEventListener('click', openAudit);
@@ -99,12 +142,21 @@ async function init() {
   $('#btn-add-user').addEventListener('click', toggleAddUser);
   $('#u-cancel').addEventListener('click', toggleAddUser);
   $('#add-user-form').addEventListener('submit', onCreateUser);
+  $('#btn-templates').addEventListener('click', openTemplates);
+  $('#btn-save-template').addEventListener('click', saveAsTemplate);
+  $('#f-template').addEventListener('change', applyTemplate);
+  $('#btn-notif').addEventListener('click', openNotif);
+  $('#btn-notif-readall').addEventListener('click', markAllNotifRead);
   // 角色下拉（新增使用者用）
   const ur = $('#u-role');
   Object.entries(META.roles).forEach(([k, v]) => {
     const o = document.createElement('option');
     o.value = k; o.textContent = v; ur.appendChild(o);
   });
+
+  await loadTemplates();
+  refreshNotifBadge();
+  setInterval(refreshNotifBadge, 30000); // 每 30 秒更新未讀數
   $('#doc-form').addEventListener('submit', onSave);
   $('#f-direction').addEventListener('change', toggleIncoming);
   $('#btn-add-stage').addEventListener('click', () => addStageRow());
@@ -167,6 +219,7 @@ async function loadList() {
   if ($('#filter-type').value) params.set('type', $('#filter-type').value);
   if ($('#filter-direction').value) params.set('direction', $('#filter-direction').value);
   if ($('#filter-due').value) params.set('due', $('#filter-due').value);
+  LAST_QUERY = q;
   const docs = await api('GET', '/api/documents?' + params.toString());
   const tbody = $('#doc-list');
   if (!docs.length) {
@@ -180,7 +233,7 @@ async function loadList() {
         <td>${esc(docNoLabel(d))}</td>
         <td><span class="dir dir-${d.direction === '收文' ? 'in' : 'out'}">${esc(d.direction || '發文')}</span></td>
         <td>${esc(d.type)}</td>
-        <td class="subject-cell">${esc(d.subject)}</td>
+        <td class="subject-cell">${subjectCell(d)}</td>
         <td>${esc(counterparty || '—')}</td>
         <td class="pri-${esc(d.priority)}">${esc(d.priority)}</td>
         <td>${esc(d.handler || '—')}</td>
@@ -223,6 +276,8 @@ function toggleIncoming() {
 // ---- 編輯 / 新增 ----
 function openEdit(doc) {
   $('#edit-title').textContent = doc ? '編輯公文' : '新增公文';
+  $('#f-template').value = '';
+  $('#f-template').parentElement.hidden = !!doc; // 編輯既有公文時不顯示套用範本
   $('#f-id').value = doc ? doc.id : '';
   $('#f-direction').value = doc ? doc.direction : META.directions[0];
   $('#f-type').value = doc ? doc.type : META.docTypes[0];
@@ -506,6 +561,7 @@ async function runAction(id, action) {
     const updated = await api('POST', `/api/documents/${id}/action`, { action, actor, note });
     toast(`已${META.actions[action].label}`);
     await Promise.all([loadStats(), loadList()]);
+    refreshNotifBadge();
     openView(id);
     // 發文後若剛編號，提示文號
     if (action === 'dispatch' && updated.docNumber) toast(`發文字號：${updated.docNumber}`);
@@ -613,6 +669,7 @@ function toggleAddUser() {
   if (!f.hidden) {
     $('#u-username').value = '';
     $('#u-name').value = '';
+    $('#u-email').value = '';
     $('#u-password').value = '';
     $('#user-form-error').hidden = true;
     $('#u-username').focus();
@@ -634,6 +691,7 @@ async function loadUsers() {
     return `<tr class="${u.active ? '' : 'row-inactive'}">
       <td>${esc(u.name)}${self ? ' <span class="self-tag">（您）</span>' : ''}</td>
       <td>${esc(u.username)}</td>
+      <td><input type="email" class="u-email" data-id="${u.id}" value="${esc(u.email || '')}" placeholder="—" /></td>
       <td><select class="u-role-sel" data-id="${u.id}" ${self ? 'disabled' : ''}>${roleOpts(u.role)}</select></td>
       <td><span class="badge ${u.active ? 'st-approved' : 'st-returned'}">${u.active ? '啟用' : '停用'}</span></td>
       <td class="user-ops">
@@ -646,6 +704,8 @@ async function loadUsers() {
 
   $$('#users-rows .u-role-sel').forEach((s) =>
     s.addEventListener('change', () => updateUser(s.dataset.id, { role: s.value })));
+  $$('#users-rows .u-email').forEach((inp) =>
+    inp.addEventListener('change', () => updateUser(inp.dataset.id, { email: inp.value.trim() })));
   $$('#users-rows [data-act]').forEach((b) =>
     b.addEventListener('click', () => userOp(b.dataset.act, b.dataset.id)));
 }
@@ -681,6 +741,7 @@ async function onCreateUser(e) {
     await api('POST', '/api/users', {
       username: $('#u-username').value.trim(),
       name: $('#u-name').value.trim(),
+      email: $('#u-email').value.trim(),
       role: $('#u-role').value,
       password: $('#u-password').value,
     });
@@ -722,6 +783,125 @@ async function onChangePassword(e) {
     errEl.textContent = err.message;
     errEl.hidden = false;
   }
+}
+
+// ---- 公文範本 ----
+async function loadTemplates() {
+  TEMPLATES = await api('GET', '/api/templates');
+  const sel = $('#f-template');
+  sel.innerHTML = '<option value="">（不套用範本）</option>' +
+    TEMPLATES.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+}
+
+function applyTemplate() {
+  const t = TEMPLATES.find((x) => x.id === $('#f-template').value);
+  if (!t) return;
+  $('#f-direction').value = t.direction;
+  toggleIncoming();
+  $('#f-type').value = t.type;
+  $('#f-priority').value = t.priority;
+  $('#f-classification').value = t.classification;
+  if (t.subjectTpl) $('#f-subject').value = t.subjectTpl;
+  if (t.bodyTpl) $('#f-body').value = t.bodyTpl;
+  $('#route-rows').innerHTML = '';
+  (t.route || []).forEach((s) => addStageRow(s));
+  toast(`已套用範本：${t.name}`);
+}
+
+async function saveAsTemplate() {
+  const name = prompt('請輸入範本名稱：');
+  if (!name) return;
+  try {
+    await api('POST', '/api/templates', {
+      name,
+      direction: $('#f-direction').value,
+      type: $('#f-type').value,
+      priority: $('#f-priority').value,
+      classification: $('#f-classification').value,
+      subjectTpl: $('#f-subject').value,
+      bodyTpl: $('#f-body').value,
+      route: collectRoute(),
+    });
+    await loadTemplates();
+    toast('已另存為範本');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function openTemplates() {
+  await loadTemplates();
+  renderTemplates();
+  show('#modal-templates');
+}
+
+function renderTemplates() {
+  $('#templates-rows').innerHTML = TEMPLATES.length
+    ? TEMPLATES.map((t) => `<tr>
+        <td>${esc(t.name)}</td>
+        <td>${esc(t.type)}</td>
+        <td>${esc(t.direction)}</td>
+        <td>${esc(t.subjectTpl || '—')}</td>
+        <td>${(t.route || []).length} 關</td>
+        <td><button class="btn btn-sm btn-danger" data-tpl="${t.id}">刪除</button></td>
+      </tr>`).join('')
+    : '<tr><td colspan="6" class="empty">尚無範本</td></tr>';
+  $$('#templates-rows [data-tpl]').forEach((b) =>
+    b.addEventListener('click', () => deleteTemplate(b.dataset.tpl)));
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('確定要刪除這個範本嗎？')) return;
+  try {
+    await api('DELETE', '/api/templates/' + id);
+    await loadTemplates();
+    renderTemplates();
+    toast('已刪除範本');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// ---- 站內通知 ----
+async function refreshNotifBadge() {
+  try {
+    const data = await api('GET', '/api/notifications');
+    const badge = $('#notif-badge');
+    if (data.unread > 0) {
+      badge.textContent = data.unread > 99 ? '99+' : data.unread;
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+    return data;
+  } catch (err) { /* 未登入或網路問題，忽略 */ }
+}
+
+async function openNotif() {
+  const data = await refreshNotifBadge();
+  const items = (data && data.items) || [];
+  $('#notif-list').innerHTML = items.length
+    ? items.map((n) => `<li class="${n.read ? '' : 'unread'}" ${n.docId ? `data-doc="${n.docId}"` : ''} data-id="${n.id}">
+        <div class="notif-title">${esc(n.title)}</div>
+        <div class="notif-body">${esc(n.body)}</div>
+        <div class="notif-time">${fmtTime(n.createdAt)}</div>
+      </li>`).join('')
+    : '<li class="empty">目前沒有通知</li>';
+  $$('#notif-list li[data-doc]').forEach((li) =>
+    li.addEventListener('click', async () => {
+      await api('POST', '/api/notifications/read', { ids: [li.dataset.id] }).catch(() => {});
+      closeModals();
+      refreshNotifBadge();
+      openView(li.dataset.doc);
+    }));
+  show('#modal-notif');
+}
+
+async function markAllNotifRead() {
+  try {
+    await api('POST', '/api/notifications/read', {});
+    openNotif();
+  } catch (err) { toast(err.message, true); }
 }
 
 // ---- Modal 控制 ----

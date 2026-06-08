@@ -16,6 +16,9 @@ const db = require('./lib/db');
 const auth = require('./lib/auth');
 const audit = require('./lib/audit');
 const attachments = require('./lib/attachments');
+const templates = require('./lib/templates');
+const notifications = require('./lib/notifications');
+const mailer = require('./lib/mailer');
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -184,6 +187,31 @@ function clientIP(req) {
   return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '';
 }
 
+// 站內通知 + Email（best-effort，不阻斷主流程）
+function notifyUsers(users, title, body, doc) {
+  const list = Array.isArray(users) ? users : [];
+  if (!list.length) return;
+  notifications.add(list.map((u) => u.id), { title, body, docId: doc ? doc.id : null });
+  list.forEach((u) => {
+    if (u.email) {
+      mailer.sendMail({ to: u.email, subject: `【公文系統】${title}`, text: `${body}\n\n公文：${doc ? doc.subject : ''}` })
+        .catch(() => { /* 已於 mailer 內處理 */ });
+    }
+  });
+}
+
+// 全文檢索：彙整公文各欄位（含會簽、歷程、附件名）為檢索字串
+function haystack(d) {
+  const parts = [
+    d.subject, d.docNumber, d.sender, d.recipient, d.handler, d.body,
+    d.incomingFrom, d.incomingNumber, d.type, d.direction,
+  ];
+  (d.route || []).forEach((s) => parts.push(s.role, s.assignee, s.note));
+  (d.history || []).forEach((h) => parts.push(h.label, h.note, h.actor));
+  (d.attachments || []).forEach((a) => parts.push(a.filename));
+  return parts.filter(Boolean).join('\n').toLowerCase();
+}
+
 function recordAudit(req, user, action, doc, detail) {
   audit.log({
     actor: user ? user.name : '訪客',
@@ -312,6 +340,7 @@ async function handleUserRoutes(req, res, url, user) {
       const users = auth.loadUsers() || [];
       const u = {
         id: crypto.randomUUID(), username, name, role,
+        email: String(body.email || '').trim(),
         password: auth.hashPassword(body.password),
         active: true, createdAt: nowISO(),
       };
@@ -357,6 +386,7 @@ async function handleUserRoutes(req, res, url, user) {
     const roleChanged = newRole !== target.role;
     const deactivated = target.active !== false && newActive === false;
     if (body.name !== undefined) target.name = String(body.name).trim() || target.name;
+    if (body.email !== undefined) target.email = String(body.email).trim();
     target.role = newRole;
     target.active = newActive;
     target.updatedAt = nowISO();
@@ -379,6 +409,93 @@ async function handleUserRoutes(req, res, url, user) {
   }
 
   return sendJSON(res, 405, { error: '不支援的方法' });
+}
+
+// ---- 公文範本路由 ------------------------------------------------------------
+
+function sanitizeTemplate(body, base) {
+  base = base || {};
+  const direction = DIRECTIONS.includes(body.direction) ? body.direction : base.direction || '發文';
+  return {
+    name: String(body.name ?? base.name ?? '').trim(),
+    direction,
+    type: DOC_TYPES.includes(body.type) ? body.type : base.type || '函',
+    priority: PRIORITIES.includes(body.priority) ? body.priority : base.priority || '普通件',
+    classification: CLASSIFICATIONS.includes(body.classification) ? body.classification : base.classification || '普通',
+    subjectTpl: String(body.subjectTpl ?? base.subjectTpl ?? '').trim(),
+    bodyTpl: String(body.bodyTpl ?? base.bodyTpl ?? '').trim(),
+    route: sanitizeRoute(body.route !== undefined ? body.route : base.route || []),
+  };
+}
+
+async function handleTemplateRoutes(req, res, url, user) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[1] !== 'templates') return null;
+  const id = parts[2];
+
+  if (!id && req.method === 'GET') {
+    return sendJSON(res, 200, templates.all());
+  }
+
+  // 範本為全機關共用資產，建立 / 修改 / 刪除限管理員
+  if (user.role !== 'admin') return sendJSON(res, 403, { error: '範本管理限管理員' });
+
+  if (!id && req.method === 'POST') {
+    const body = await readBody(req);
+    const clean = sanitizeTemplate(body);
+    if (!clean.name) return sendJSON(res, 400, { error: '範本名稱為必填' });
+    const list = templates.all();
+    const tpl = { id: crypto.randomUUID(), ...clean, createdAt: nowISO() };
+    list.push(tpl);
+    templates.save(list);
+    recordAudit(req, user, '新增公文範本', null, clean.name);
+    return sendJSON(res, 201, tpl);
+  }
+
+  const list = templates.all();
+  const idx = list.findIndex((t) => t.id === id);
+  if (idx === -1) return sendJSON(res, 404, { error: '查無此範本' });
+
+  if (req.method === 'PUT') {
+    const body = await readBody(req);
+    const clean = sanitizeTemplate(body, list[idx]);
+    if (!clean.name) return sendJSON(res, 400, { error: '範本名稱為必填' });
+    list[idx] = { ...list[idx], ...clean };
+    templates.save(list);
+    recordAudit(req, user, '修改公文範本', null, clean.name);
+    return sendJSON(res, 200, list[idx]);
+  }
+
+  if (req.method === 'DELETE') {
+    const [removed] = list.splice(idx, 1);
+    templates.save(list);
+    recordAudit(req, user, '刪除公文範本', null, removed.name);
+    return sendJSON(res, 200, { deleted: id });
+  }
+
+  return sendJSON(res, 405, { error: '不支援的方法' });
+}
+
+// ---- 通知路由 ----------------------------------------------------------------
+
+async function handleNotificationRoutes(req, res, url, user) {
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[1] !== 'notifications') return null;
+
+  if (!parts[2] && req.method === 'GET') {
+    return sendJSON(res, 200, {
+      unread: notifications.unread(user.id),
+      items: notifications.forUser(user.id, 50),
+    });
+  }
+
+  if (parts[2] === 'read' && req.method === 'POST') {
+    const body = await readBody(req);
+    const count = notifications.markRead(user.id, Array.isArray(body.ids) ? body.ids : null);
+    return sendJSON(res, 200, { marked: count, unread: notifications.unread(user.id) });
+  }
+
+  return sendJSON(res, 404, { error: '資源不存在' });
 }
 
 // ---- 稽核路由（管理員）-------------------------------------------------------
@@ -428,6 +545,12 @@ async function handleApi(req, res, url) {
   // 使用者管理
   if (resource === 'users') return handleUserRoutes(req, res, url, user);
 
+  // 公文範本
+  if (resource === 'templates') return handleTemplateRoutes(req, res, url, user);
+
+  // 站內通知
+  if (resource === 'notifications') return handleNotificationRoutes(req, res, url, user);
+
   if (resource === 'meta' && req.method === 'GET') {
     return sendJSON(res, 200, {
       docTypes: DOC_TYPES, priorities: PRIORITIES, classifications: CLASSIFICATIONS,
@@ -468,9 +591,12 @@ async function handleApi(req, res, url) {
       const type = url.searchParams.get('type');
       const direction = url.searchParams.get('direction');
       if (q) {
-        docs = docs.filter((d) =>
-          [d.subject, d.docNumber, d.sender, d.recipient, d.handler, d.body, d.incomingFrom]
-            .filter(Boolean).some((f) => String(f).toLowerCase().includes(q)));
+        // 全文檢索：多關鍵字以空白分隔，須全部命中（AND）
+        const terms = q.split(/\s+/).filter(Boolean);
+        docs = docs.filter((d) => {
+          const hay = haystack(d);
+          return terms.every((t) => hay.includes(t));
+        });
       }
       if (status) docs = docs.filter((d) => d.status === status);
       if (type) docs = docs.filter((d) => d.type === type);
@@ -660,6 +786,32 @@ async function handleApi(req, res, url) {
     doc.history.push({ action: actionKey, label, actor, note: appliedNote, at: nowISO() });
     writeAll(docs);
     recordAudit(req, user, label, doc, appliedNote);
+
+    // 發送站內通知 / Email（排除操作者本人）
+    try {
+      const others = (arr) => arr.filter((u) => u.id !== user.id);
+      const owner = doc.createdBy ? auth.findById(doc.createdBy) : null;
+      const ownerArr = owner && owner.id !== user.id ? [owner] : [];
+      if (actionKey === 'submit') {
+        notifyUsers(others(auth.usersByRole('supervisor')), '有公文待簽核', `${actor} 送核：${doc.subject}`, doc);
+      } else if (actionKey === 'sign' || actionKey === 'approve') {
+        if (doc.status === 'approved') {
+          if (doc.direction === '發文') notifyUsers(others(auth.usersByRole('clerk')), '有公文待發文', `已核定：${doc.subject}`, doc);
+          else notifyUsers(ownerArr, '公文已核定', `${doc.subject} 已核定`, doc);
+        } else if (doc.status === 'pending') {
+          notifyUsers(others(auth.usersByRole('supervisor')), '會簽進行中', `下一關待核章：${doc.subject}`, doc);
+        }
+      } else if (actionKey === 'reject') {
+        notifyUsers(ownerArr, '公文已退回', `${doc.subject} 遭退回${appliedNote ? '：' + appliedNote : ''}`, doc);
+      } else if (actionKey === 'dispatch') {
+        notifyUsers(ownerArr, '公文已發文', `${doc.subject}（${doc.docNumber}）已發文`, doc);
+      } else if (actionKey === 'archive') {
+        notifyUsers(ownerArr, '公文已歸檔', `${doc.subject} 已歸檔`, doc);
+      }
+    } catch (e) {
+      console.warn('通知發送失敗：', e.message);
+    }
+
     return sendJSON(res, 200, doc);
   }
 
@@ -718,6 +870,7 @@ const server = http.createServer(async (req, res) => {
 
 if (require.main === module) {
   auth.seedUsers();
+  templates.seed();
   server.listen(PORT, HOST, () => {
     console.log(`公文系統已啟動： http://localhost:${PORT}`);
   });

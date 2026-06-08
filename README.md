@@ -15,7 +15,10 @@
 - **附件上傳**：每份公文可上傳附件（單檔上限 10MB），支援下載與移除；附件實體存於 `data/attachments/`。
 - **稽核軌跡**：自動記錄登入、公文建立／修改／刪除、各簽核動作、附件異動等操作（操作者、角色、時間、對象、來源 IP），管理員可檢視並匯出 CSV（含 BOM，Excel 可正確顯示中文）。
 - **限辦日期與逾期提醒**：可為公文設定限辦日期，系統自動標示「已逾期」與「即將到期」（預設到期前 3 日內），列表、儀表板均有提醒，並可一鍵篩選。已發文／已歸檔的結案公文不再計入逾期。
-- **搜尋與篩選**：可依關鍵字（主旨／文號／受文者／來文者／承辦人）、收發別、狀態、類別、限辦狀態過濾。
+- **公文範本**：內建常用範本（一般函稿、開會通知單、簽呈），新增公文時可一鍵套用預填類別／主旨／本文／會簽路徑；管理員可新增、刪除範本，或將現有內容「另存為範本」。
+- **Email／系統通知**：簽核流程各環節（送核、會簽、核定、退回、發文、歸檔）自動通知相關人員——站內通知（鈴鐺含未讀數）即時送達，並可寄送 Email。
+- **全文檢索**：關鍵字檢索涵蓋主旨、文號、本文、收發文者、會簽路徑、處理歷程與附件名稱；支援多關鍵字（以空白分隔，須全部命中），結果高亮並顯示命中摘要。
+- **搜尋與篩選**：可依關鍵字全文檢索，並依收發別、狀態、類別、限辦狀態過濾。
 - **儀表板統計**：即時顯示公文總數、收發數量、待辦狀態與逾期／即將到期件數（點擊即套用篩選）。
 
 ## 帳號與權限
@@ -60,6 +63,19 @@ node server.js
 
 可用環境變數 `PORT` 指定埠號，例如 `PORT=8080 node server.js`。
 
+### Email 通知設定（選填）
+
+未設定 SMTP 時，通知信會寫入 `data/outbox/`（`.eml` 檔）以供檢視，站內通知仍正常運作。若要實際寄出，設定以下環境變數：
+
+```bash
+SMTP_HOST=smtp.example.com SMTP_PORT=587 \
+SMTP_USER=帳號 SMTP_PASS=密碼 SMTP_SECURE=false \
+MAIL_FROM="公文系統 <no-reply@example.com>" \
+node server.js
+```
+
+> 收件者 Email 於「使用者管理」中設定；未填 Email 的使用者僅收站內通知。
+
 ## 簽核流程
 
 | 動作 | 適用狀態 | 結果狀態 | 備註 |
@@ -102,6 +118,12 @@ node server.js
 | PUT | `/api/users/:id` | 更新角色／啟用狀態／姓名（限管理員） |
 | DELETE | `/api/users/:id` | 刪除使用者（限管理員） |
 | POST | `/api/users/:id/password` | 重設指定使用者密碼（限管理員） |
+| GET | `/api/templates` | 公文範本列表 |
+| POST | `/api/templates` | 新增範本（限管理員） |
+| PUT | `/api/templates/:id` | 修改範本（限管理員） |
+| DELETE | `/api/templates/:id` | 刪除範本（限管理員） |
+| GET | `/api/notifications` | 取得自己的通知與未讀數 |
+| POST | `/api/notifications/read` | 標示已讀 `{ ids }`（省略則全部） |
 
 ## 專案結構
 
@@ -109,16 +131,22 @@ node server.js
 document-App/
 ├── server.js          # HTTP 伺服器 + REST API 路由
 ├── lib/
-│   ├── db.js          # JSON 檔案儲存層
-│   ├── auth.js        # 使用者、角色權限、Session
-│   ├── audit.js       # 稽核軌跡與 CSV 匯出
-│   └── attachments.js # 附件存取
+│   ├── db.js            # JSON 檔案儲存層
+│   ├── auth.js          # 使用者、角色權限、Session
+│   ├── audit.js         # 稽核軌跡與 CSV 匯出
+│   ├── attachments.js   # 附件存取
+│   ├── templates.js     # 公文範本
+│   ├── notifications.js # 站內通知
+│   └── mailer.js        # Email 寄送（SMTP / outbox）
 ├── package.json
 ├── data/              # 執行時資料（不進版控）
 │   ├── documents.json
 │   ├── users.json     # 含密碼雜湊
+│   ├── templates.json
+│   ├── notifications.json
 │   ├── audit.json
-│   └── attachments/   # 附件檔案
+│   ├── attachments/   # 附件檔案
+│   └── outbox/        # 未設 SMTP 時的通知信
 └── public/            # 前端
     ├── index.html
     ├── styles.css

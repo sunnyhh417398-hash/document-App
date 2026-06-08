@@ -31,8 +31,10 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button id="btn-templates" class="btn" hidden>範本管理</button>
       <button id="btn-users" class="btn" hidden>使用者管理</button>
       <button id="btn-audit" class="btn" hidden>稽核軌跡</button>
+      <button id="btn-notif" class="btn btn-ghost notif-btn" title="通知">🔔<span id="notif-badge" hidden>0</span></button>
       <button id="btn-new" class="btn btn-primary">＋ 新增公文</button>
       <span class="user-chip" id="user-chip"></span>
       <button id="btn-password" class="btn btn-ghost">改密碼</button>
@@ -77,6 +79,9 @@
       </div>
       <form id="doc-form" class="modal-body">
         <input type="hidden" id="f-id" />
+        <label class="tpl-pick">套用範本
+          <select id="f-template"><option value="">（不套用範本）</option></select>
+        </label>
         <div class="grid">
           <label>收發別<select id="f-direction"></select></label>
           <label>公文類別<select id="f-type"></select></label>
@@ -119,6 +124,8 @@
 
         <p class="form-error" id="form-error" hidden></p>
         <div class="modal-foot">
+          <button type="button" class="btn" id="btn-save-template" hidden>另存為範本</button>
+          <span class="spacer"></span>
           <button type="button" class="btn" data-close>取消</button>
           <button type="submit" class="btn btn-primary">儲存</button>
         </div>
@@ -174,7 +181,8 @@
             <label>姓名<input type="text" id="u-name" /></label>
             <label>角色<select id="u-role"></select></label>
           </div>
-          <div class="grid grid-2">
+          <div class="grid">
+            <label>Email（通知用）<input type="email" id="u-email" autocomplete="off" placeholder="選填" /></label>
             <label>密碼<input type="password" id="u-password" autocomplete="new-password" placeholder="至少 6 碼" /></label>
             <div class="user-add-actions">
               <button type="submit" class="btn btn-primary">建立</button>
@@ -184,7 +192,7 @@
           <p class="form-error" id="user-form-error" hidden></p>
         </form>
         <table class="mini-table" id="users-table">
-          <thead><tr><th>姓名</th><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
+          <thead><tr><th>姓名</th><th>帳號</th><th>Email</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead>
           <tbody id="users-rows"></tbody>
         </table>
       </div>
@@ -208,6 +216,39 @@
           <button type="submit" class="btn btn-primary">儲存</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- 通知 對話框 -->
+  <div class="modal-backdrop" id="modal-notif" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h2>通知</h2>
+        <div>
+          <button class="btn btn-sm" id="btn-notif-readall">全部標為已讀</button>
+          <button class="btn-close" data-close>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <ul class="notif-list" id="notif-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 範本管理 對話框 -->
+  <div class="modal-backdrop" id="modal-templates" hidden>
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h2>範本管理</h2>
+        <button class="btn-close" data-close>✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="hint">範本可在「新增公文」時套用以快速預填。建立／刪除限管理員。</p>
+        <table class="mini-table">
+          <thead><tr><th>名稱</th><th>類別</th><th>收發別</th><th>主旨範本</th><th>會簽關卡</th><th>操作</th></tr></thead>
+          <tbody id="templates-rows"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
