@@ -68,6 +68,35 @@ function nextNumber(docs, direction) {
 
 const nowISO = () => new Date().toISOString();
 
+// ---- 限辦日期 / 逾期計算 ----
+const CLOSED_STATUS = ['dispatched', 'archived']; // 已結案，不再計逾期
+const DUE_SOON_DAYS = 3;
+
+function todayStr() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// 回傳 'overdue' | 'soon' | 'none'（YYYY-MM-DD 字串可直接字典序比較）
+function dueState(doc, today) {
+  if (!doc.dueDate || CLOSED_STATUS.includes(doc.status)) return 'none';
+  if (doc.dueDate < today) return 'overdue';
+  if (doc.dueDate <= addDays(today, DUE_SOON_DAYS)) return 'soon';
+  return 'none';
+}
+
+function withDueState(doc, today) {
+  return { ...doc, dueState: dueState(doc, today) };
+}
+
 function sanitizeRoute(route) {
   if (!Array.isArray(route)) return [];
   return route
@@ -93,6 +122,7 @@ function validateDocInput(body) {
   if (body.direction && !DIRECTIONS.includes(body.direction)) errors.push('收發別不正確');
   if (body.priority && !PRIORITIES.includes(body.priority)) errors.push('速別不正確');
   if (body.classification && !CLASSIFICATIONS.includes(body.classification)) errors.push('密等不正確');
+  if (body.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate))) errors.push('限辦日期格式不正確');
   return errors;
 }
 
@@ -110,6 +140,7 @@ function sanitizeDoc(body, existing) {
     recipient: String(body.recipient ?? base.recipient ?? '').trim(),
     body: String(body.body ?? base.body ?? '').trim(),
     handler: String(body.handler ?? base.handler ?? '').trim(),
+    dueDate: String(body.dueDate ?? base.dueDate ?? '').trim(),
     route: body.route !== undefined ? sanitizeRoute(body.route) : base.route || [],
     incomingFrom: isIncoming ? String(body.incomingFrom ?? base.incomingFrom ?? '').trim() : '',
     incomingNumber: isIncoming ? String(body.incomingNumber ?? base.incomingNumber ?? '').trim() : '',
@@ -409,11 +440,17 @@ async function handleApi(req, res, url) {
     const byStatus = {};
     Object.keys(STATUS).forEach((s) => (byStatus[s] = 0));
     const byDirection = { 發文: 0, 收文: 0 };
+    const today = todayStr();
+    let overdue = 0;
+    let soon = 0;
     docs.forEach((d) => {
       byStatus[d.status] = (byStatus[d.status] || 0) + 1;
       if (byDirection[d.direction] !== undefined) byDirection[d.direction] += 1;
+      const ds = dueState(d, today);
+      if (ds === 'overdue') overdue += 1;
+      else if (ds === 'soon') soon += 1;
     });
-    return sendJSON(res, 200, { total: docs.length, byStatus, byDirection });
+    return sendJSON(res, 200, { total: docs.length, byStatus, byDirection, overdue, soon });
   }
 
   if (resource !== 'documents') return sendJSON(res, 404, { error: '資源不存在' });
@@ -438,6 +475,11 @@ async function handleApi(req, res, url) {
       if (status) docs = docs.filter((d) => d.status === status);
       if (type) docs = docs.filter((d) => d.type === type);
       if (direction) docs = docs.filter((d) => d.direction === direction);
+      const today = todayStr();
+      docs = docs.map((d) => withDueState(d, today));
+      const due = url.searchParams.get('due'); // 'overdue' | 'soon'
+      if (due === 'overdue') docs = docs.filter((d) => d.dueState === 'overdue');
+      else if (due === 'soon') docs = docs.filter((d) => d.dueState === 'soon');
       docs.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
       return sendJSON(res, 200, docs);
     }
@@ -474,7 +516,7 @@ async function handleApi(req, res, url) {
       docs.push(doc);
       writeAll(docs);
       recordAudit(req, user, isIncoming ? '收文登記' : '建立公文', doc, '');
-      return sendJSON(res, 201, doc);
+      return sendJSON(res, 201, withDueState(doc, todayStr()));
     }
 
     return sendJSON(res, 405, { error: '不支援的方法' });
@@ -622,7 +664,7 @@ async function handleApi(req, res, url) {
   }
 
   // ---- 單一公文 ----
-  if (req.method === 'GET') return sendJSON(res, 200, doc);
+  if (req.method === 'GET') return sendJSON(res, 200, withDueState(doc, todayStr()));
 
   if (req.method === 'PUT') {
     if (!canEdit(doc, user)) return sendJSON(res, 403, { error: '僅承辦人或管理員可編輯' });

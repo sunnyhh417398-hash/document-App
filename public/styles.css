@@ -69,6 +69,15 @@ body {
 }
 .stat-card .num { font-size: 26px; font-weight: 700; color: var(--primary); }
 .stat-card .lbl { font-size: 13px; color: var(--muted); }
+.card-overdue { cursor: pointer; border-color: #e3b6b1; background: #fdf3f1; }
+.card-overdue .num { color: var(--danger); }
+.card-soon { cursor: pointer; border-color: #ecd9a8; background: #fdf9ed; }
+.card-soon .num { color: #9a6b00; }
+
+/* 限辦/逾期標示 */
+.due-tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.due-overdue { background: #fbe0dd; color: #b23b2c; }
+.due-soon { background: #fdf2d4; color: #9a6b00; }
 
 .toolbar {
   display: flex;

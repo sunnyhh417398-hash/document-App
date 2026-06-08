@@ -47,6 +47,11 @@
     <select id="filter-direction"><option value="">收發別</option></select>
     <select id="filter-status"><option value="">全部狀態</option></select>
     <select id="filter-type"><option value="">全部類別</option></select>
+    <select id="filter-due">
+      <option value="">限辦狀態</option>
+      <option value="overdue">已逾期</option>
+      <option value="soon">即將到期</option>
+    </select>
   </section>
 
   <main>
@@ -54,11 +59,11 @@
       <thead>
         <tr>
           <th>文號</th><th>文向</th><th>類別</th><th>主旨</th><th>受文者／來文者</th>
-          <th>速別</th><th>承辦人</th><th>狀態</th><th>更新時間</th>
+          <th>速別</th><th>承辦人</th><th>限辦日期</th><th>狀態</th><th>更新時間</th>
         </tr>
       </thead>
       <tbody id="doc-list">
-        <tr><td colspan="9" class="empty">載入中…</td></tr>
+        <tr><td colspan="10" class="empty">載入中…</td></tr>
       </tbody>
     </table>
   </main>
@@ -80,7 +85,7 @@
         <div class="grid">
           <label>密等<select id="f-classification"></select></label>
           <label>承辦人<input type="text" id="f-handler" placeholder="姓名" /></label>
-          <label></label>
+          <label>限辦日期<input type="date" id="f-dueDate" /></label>
         </div>
 
         <!-- 收文專屬欄位 -->

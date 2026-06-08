@@ -56,6 +56,19 @@ function docNoLabel(d) {
   return d.direction === '收文' ? '（未編號）' : '（未發文）';
 }
 
+const DUE_LABEL = { overdue: '已逾期', soon: '即將到期' };
+function dueMetaLabel(d) {
+  if (!d.dueDate) return '';
+  const t = DUE_LABEL[d.dueState];
+  return t ? `${d.dueDate}（${t}）` : d.dueDate;
+}
+function dueCell(d) {
+  if (!d.dueDate) return '—';
+  const tag = d.dueState && DUE_LABEL[d.dueState]
+    ? ` <span class="due-tag due-${d.dueState}">${DUE_LABEL[d.dueState]}</span>` : '';
+  return `${esc(d.dueDate)}${tag}`;
+}
+
 // ---- 初始化 ----
 async function init() {
   META = await api('GET', '/api/meta');
@@ -99,6 +112,7 @@ async function init() {
   $('#filter-status').addEventListener('change', loadList);
   $('#filter-type').addEventListener('change', loadList);
   $('#filter-direction').addEventListener('change', loadList);
+  $('#filter-due').addEventListener('change', loadList);
   $$('[data-close]').forEach((b) => b.addEventListener('click', closeModals));
   $$('.modal-backdrop').forEach((m) =>
     m.addEventListener('click', (e) => { if (e.target === m) closeModals(); })
@@ -127,15 +141,21 @@ function debounce(fn, ms) {
 // ---- 統計 ----
 async function loadStats() {
   const s = await api('GET', '/api/stats');
-  const cards = [['total', '公文總數', s.total]];
-  cards.push(['out', '發文', (s.byDirection && s.byDirection['發文']) || 0]);
-  cards.push(['in', '收文', (s.byDirection && s.byDirection['收文']) || 0]);
-  ['pending', 'approved', 'dispatched'].forEach((k) =>
-    cards.push([k, META.statuses[k], s.byStatus[k] || 0])
-  );
+  const cards = [['total', '公文總數', s.total, '']];
+  cards.push(['out', '發文', (s.byDirection && s.byDirection['發文']) || 0, '']);
+  cards.push(['in', '收文', (s.byDirection && s.byDirection['收文']) || 0, '']);
+  ['pending', 'approved'].forEach((k) =>
+    cards.push([k, META.statuses[k], s.byStatus[k] || 0, '']));
+  cards.push(['overdue', '已逾期', s.overdue || 0, 'card-overdue']);
+  cards.push(['soon', '即將到期', s.soon || 0, 'card-soon']);
   $('#stats').innerHTML = cards
-    .map(([, lbl, num]) => `<div class="stat-card"><div class="num">${num}</div><div class="lbl">${esc(lbl)}</div></div>`)
+    .map(([key, lbl, num, cls]) =>
+      `<div class="stat-card ${cls}" data-due="${key === 'overdue' ? 'overdue' : key === 'soon' ? 'soon' : ''}">
+        <div class="num">${num}</div><div class="lbl">${esc(lbl)}</div></div>`)
     .join('');
+  // 點擊逾期/即將到期卡片即套用篩選
+  $$('#stats .stat-card[data-due="overdue"], #stats .stat-card[data-due="soon"]').forEach((c) =>
+    c.addEventListener('click', () => { $('#filter-due').value = c.dataset.due; loadList(); }));
 }
 
 // ---- 列表 ----
@@ -146,10 +166,11 @@ async function loadList() {
   if ($('#filter-status').value) params.set('status', $('#filter-status').value);
   if ($('#filter-type').value) params.set('type', $('#filter-type').value);
   if ($('#filter-direction').value) params.set('direction', $('#filter-direction').value);
+  if ($('#filter-due').value) params.set('due', $('#filter-due').value);
   const docs = await api('GET', '/api/documents?' + params.toString());
   const tbody = $('#doc-list');
   if (!docs.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty">尚無公文，點選右上角「新增公文」開始建立。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">尚無公文，點選右上角「新增公文」開始建立。</td></tr>';
     return;
   }
   tbody.innerHTML = docs
@@ -163,6 +184,7 @@ async function loadList() {
         <td>${esc(counterparty || '—')}</td>
         <td class="pri-${esc(d.priority)}">${esc(d.priority)}</td>
         <td>${esc(d.handler || '—')}</td>
+        <td>${dueCell(d)}</td>
         <td><span class="badge st-${d.status}">${esc(META.statuses[d.status])}</span></td>
         <td>${fmtTime(d.updatedAt)}</td>
       </tr>`;
@@ -211,6 +233,7 @@ function openEdit(doc) {
   $('#f-recipient').value = doc ? doc.recipient : '';
   $('#f-body').value = doc ? doc.body : '';
   $('#f-handler').value = doc ? doc.handler : '';
+  $('#f-dueDate').value = doc ? doc.dueDate || '' : '';
   $('#f-incomingFrom').value = doc ? doc.incomingFrom || '' : '';
   $('#f-incomingNumber').value = doc ? doc.incomingNumber || '' : '';
   $('#f-incomingDate').value = doc ? doc.incomingDate || '' : '';
@@ -234,6 +257,7 @@ async function onSave(e) {
     recipient: $('#f-recipient').value,
     body: $('#f-body').value,
     handler: $('#f-handler').value,
+    dueDate: $('#f-dueDate').value,
     incomingFrom: $('#f-incomingFrom').value,
     incomingNumber: $('#f-incomingNumber').value,
     incomingDate: $('#f-incomingDate').value,
@@ -321,6 +345,7 @@ async function openView(id) {
     ['速別', d.priority],
     ['密等', d.classification],
     ['承辦人', d.handler],
+    ['限辦日期', dueMetaLabel(d)],
     ['建立時間', fmtTime(d.createdAt)],
   ];
   if (d.direction === '收文') {
@@ -511,6 +536,7 @@ function buildPrintHTML(d) {
     ['密等', d.classification],
     [numLabel, docNoLabel(d)],
     ['發文日期', fmtDate(d.updatedAt)],
+    ['限辦日期', d.dueDate || ''],
   ];
   if (d.direction === '收文') {
     rows.push(['來文機關', d.incomingFrom], ['來文字號', d.incomingNumber], ['來文日期', d.incomingDate]);
