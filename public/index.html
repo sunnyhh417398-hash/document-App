@@ -7,6 +7,21 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- 登入畫面 -->
+  <div class="login-screen" id="login-screen" hidden>
+    <form class="login-box" id="login-form">
+      <div class="login-logo">📜</div>
+      <h1>公文系統</h1>
+      <p class="login-sub">請登入以使用系統</p>
+      <label>帳號<input type="text" id="login-username" autocomplete="username" required /></label>
+      <label>密碼<input type="password" id="login-password" autocomplete="current-password" required /></label>
+      <p class="form-error" id="login-error" hidden></p>
+      <button type="submit" class="btn btn-act login-btn">登入</button>
+      <p class="login-hint">預設帳號：admin / clerk / boss / staff（密碼為帳號 +123）</p>
+    </form>
+  </div>
+
+  <div id="app" hidden>
   <header class="topbar">
     <div class="brand">
       <span class="logo">📜</span>
@@ -15,7 +30,12 @@
         <p class="subtitle">公文製作 · 簽核流程 · 收發管理</p>
       </div>
     </div>
-    <button id="btn-new" class="btn btn-primary">＋ 新增公文</button>
+    <div class="topbar-actions">
+      <button id="btn-audit" class="btn" hidden>稽核軌跡</button>
+      <button id="btn-new" class="btn btn-primary">＋ 新增公文</button>
+      <span class="user-chip" id="user-chip"></span>
+      <button id="btn-logout" class="btn btn-ghost">登出</button>
+    </div>
   </header>
 
   <section class="stats" id="stats"><!-- 統計卡片 --></section>
@@ -109,6 +129,27 @@
       <div class="modal-body" id="view-body"><!-- 動態 --></div>
     </div>
   </div>
+
+  <!-- 稽核軌跡 對話框 -->
+  <div class="modal-backdrop" id="modal-audit" hidden>
+    <div class="modal modal-wide">
+      <div class="modal-head">
+        <h2>稽核軌跡</h2>
+        <div>
+          <button class="btn btn-act btn-sm" id="btn-audit-export">⤓ 匯出 CSV</button>
+          <button class="btn-close" data-close>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <table class="mini-table" id="audit-table">
+          <thead><tr><th>時間</th><th>操作者</th><th>角色</th><th>動作</th><th>對象</th><th>說明</th></tr></thead>
+          <tbody id="audit-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /#app -->
 
   <script src="app.js"></script>
 </body>

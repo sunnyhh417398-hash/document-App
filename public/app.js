@@ -2,8 +2,12 @@
 
 // ---- 全域狀態 ----
 let META = { docTypes: [], priorities: [], classifications: [], directions: [], statuses: {}, actions: {} };
+let ME = null; // 目前登入者 { id, name, role, roleLabel, caps }
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+function can(cap) { return !!(ME && ME.caps && ME.caps.includes(cap)); }
+function isOwner(doc) { return ME && (ME.role === 'admin' || doc.createdBy === ME.id); }
 
 // ---- API ----
 async function api(method, url, body) {
@@ -67,7 +71,14 @@ async function init() {
     o.value = k; o.textContent = v; fs.appendChild(o);
   });
 
+  // 使用者資訊與權限門禁
+  $('#user-chip').textContent = `${ME.name}（${ME.roleLabel}）`;
+  $('#btn-new').hidden = !can('create');
+  $('#btn-audit').hidden = !can('audit');
+
   $('#btn-new').addEventListener('click', () => openEdit());
+  $('#btn-audit').addEventListener('click', openAudit);
+  $('#btn-audit-export').addEventListener('click', () => { window.location = '/api/audit/export'; });
   $('#doc-form').addEventListener('submit', onSave);
   $('#f-direction').addEventListener('change', toggleIncoming);
   $('#btn-add-stage').addEventListener('click', () => addStageRow());
@@ -243,7 +254,8 @@ function availableActions(d) {
     list.push('archive');
   }
   if (s === 'dispatched') list.push('archive');
-  return list;
+  // 僅顯示目前角色有權限的動作
+  return list.filter((key) => can(key));
 }
 
 function actionLabel(d, key) {
@@ -306,7 +318,8 @@ async function openView(id) {
   const actionButtons = actions
     .map((key) => `<button class="btn btn-act" data-action="${key}">${esc(actionLabel(d, key))}</button>`)
     .join('');
-  const editable = ['draft', 'returned'].includes(d.status);
+  const editable = ['draft', 'returned'].includes(d.status) && isOwner(d);
+  const showSign = actions.length > 0;
 
   $('#view-body').innerHTML = `
     <div class="doc-paper">
@@ -321,17 +334,19 @@ async function openView(id) {
 
     ${renderRoute(d)}
 
-    <div class="action-bar">
-      <input type="text" id="act-actor" placeholder="簽核人姓名" />
+    ${renderAttachments(d)}
+
+    ${showSign ? `<div class="action-bar">
+      <input type="text" id="act-actor" placeholder="簽核人姓名（預設為您）" />
       <input type="text" id="act-note" placeholder="批示 / 意見（選填）" />
-    </div>
+    </div>` : ''}
     <div class="action-bar" style="margin-top:10px">
-      ${actionButtons || '<span style="color:#9aa;font-size:13px">此公文已完成流程</span>'}
+      ${actionButtons || '<span style="color:#9aa;font-size:13px">目前無可執行的簽核動作</span>'}
       <span class="spacer"></span>
       <button class="btn" id="v-print">🖨️ 列印套表</button>
       <button class="btn" id="v-pdf">📄 匯出 PDF</button>
       ${editable ? '<button class="btn" id="v-edit">編輯</button>' : ''}
-      <button class="btn btn-danger" id="v-delete">刪除</button>
+      ${isOwner(d) ? '<button class="btn btn-danger" id="v-delete">刪除</button>' : ''}
     </div>
 
     <div class="history">
@@ -351,16 +366,104 @@ async function openView(id) {
     b.addEventListener('click', () => runAction(d.id, b.dataset.action))
   );
   if (editable) $('#v-edit').addEventListener('click', () => { closeModals(); openEdit(d); });
-  $('#v-delete').addEventListener('click', () => removeDoc(d.id));
+  const delBtn = $('#v-delete');
+  if (delBtn) delBtn.addEventListener('click', () => removeDoc(d.id));
   $('#v-print').addEventListener('click', () => printDoc(d, false));
   $('#v-pdf').addEventListener('click', () => printDoc(d, true));
+  bindAttachments(d);
 
   show('#modal-view');
 }
 
+// ---- 附件 ----
+function renderAttachments(d) {
+  const list = (d.attachments || [])
+    .map((a) => `<li>
+      <a href="/api/documents/${d.id}/attachments/${a.id}" target="_blank" rel="noopener">📎 ${esc(a.filename)}</a>
+      <span class="att-meta">${fmtKB(a.size)} · ${esc(a.uploadedBy)} · ${fmtTime(a.uploadedAt)}</span>
+      ${isOwner(d) ? `<button class="att-del" data-att="${a.id}">移除</button>` : ''}
+    </li>`)
+    .join('');
+  const canUpload = can('attach') && d.status !== 'archived';
+  return `<div class="attach-view">
+    <h4>附件（${(d.attachments || []).length}）</h4>
+    <ul class="attach-list">${list || '<li class="att-empty">尚無附件</li>'}</ul>
+    ${canUpload ? `<div class="attach-upload">
+      <input type="file" id="att-file" />
+      <button class="btn btn-sm btn-act" id="att-upload">上傳附件</button>
+      <span class="hint">單檔上限 10MB</span>
+    </div>` : ''}
+  </div>`;
+}
+
+function fmtKB(bytes) {
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+  return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+}
+
+function bindAttachments(d) {
+  $$('#view-body .att-del').forEach((b) =>
+    b.addEventListener('click', () => deleteAttachment(d.id, b.dataset.att))
+  );
+  const up = $('#att-upload');
+  if (up) up.addEventListener('click', () => uploadAttachment(d.id));
+}
+
+function uploadAttachment(id) {
+  const input = $('#att-file');
+  const file = input.files[0];
+  if (!file) { toast('請先選擇檔案', true); return; }
+  if (file.size > 10 * 1024 * 1024) { toast('附件超過 10MB 上限', true); return; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      await api('POST', `/api/documents/${id}/attachments`, { filename: file.name, data: reader.result });
+      toast('附件已上傳');
+      openView(id);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  };
+  reader.onerror = () => toast('讀取檔案失敗', true);
+  reader.readAsDataURL(file);
+}
+
+async function deleteAttachment(id, attId) {
+  if (!confirm('確定要移除這個附件嗎？')) return;
+  try {
+    await api('DELETE', `/api/documents/${id}/attachments/${attId}`);
+    toast('已移除附件');
+    openView(id);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// ---- 稽核軌跡 ----
+async function openAudit() {
+  try {
+    const rows = await api('GET', '/api/audit?limit=300');
+    $('#audit-rows').innerHTML = rows.length
+      ? rows.map((r) => `<tr>
+          <td>${fmtTime(r.at)}</td>
+          <td>${esc(r.actor)}</td>
+          <td>${esc(r.role)}</td>
+          <td>${esc(r.action)}</td>
+          <td>${esc([r.docNumber, r.subject].filter(Boolean).join(' '))}</td>
+          <td>${esc(r.detail)}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" class="empty">尚無紀錄</td></tr>';
+    show('#modal-audit');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 async function runAction(id, action) {
-  const actor = $('#act-actor').value.trim();
-  const note = $('#act-note').value.trim();
+  const actorEl = $('#act-actor');
+  const noteEl = $('#act-note');
+  const actor = actorEl ? actorEl.value.trim() : '';
+  const note = noteEl ? noteEl.value.trim() : '';
   try {
     const updated = await api('POST', `/api/documents/${id}/action`, { action, actor, note });
     toast(`已${META.actions[action].label}`);
@@ -469,6 +572,50 @@ function show(sel) { $(sel).hidden = false; }
 function closeModals() { $$('.modal-backdrop').forEach((m) => (m.hidden = true)); }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModals(); });
 
-init().catch((err) => {
-  document.body.innerHTML = `<p style="padding:40px;color:#c0392b">初始化失敗：${esc(err.message)}</p>`;
-});
+// ---- 身分驗證 / 啟動 ----
+function showLogin() {
+  $('#login-screen').hidden = false;
+  $('#app').hidden = true;
+}
+function showApp() {
+  $('#login-screen').hidden = true;
+  $('#app').hidden = false;
+}
+
+async function onLogin(e) {
+  e.preventDefault();
+  const errEl = $('#login-error');
+  errEl.hidden = true;
+  try {
+    ME = await api('POST', '/api/login', {
+      username: $('#login-username').value.trim(),
+      password: $('#login-password').value,
+    });
+    $('#login-password').value = '';
+    showApp();
+    await init();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+  }
+}
+
+async function onLogout() {
+  try { await api('POST', '/api/logout'); } catch (e) { /* 忽略 */ }
+  ME = null;
+  location.reload();
+}
+
+async function boot() {
+  $('#login-form').addEventListener('submit', onLogin);
+  $('#btn-logout').addEventListener('click', onLogout);
+  try {
+    ME = await api('GET', '/api/me');
+    showApp();
+    await init();
+  } catch (err) {
+    showLogin();
+  }
+}
+
+boot();

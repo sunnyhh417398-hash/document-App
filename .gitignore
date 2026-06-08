@@ -1,4 +1,6 @@
 node_modules/
-data/documents.json
+# 執行時資料（含使用者密碼雜湊、稽核軌跡、附件），不進版控
+data/*
+!data/.gitkeep
 *.log
 .DS_Store

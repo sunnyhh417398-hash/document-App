@@ -11,8 +11,24 @@
 - **會簽多關卡**：每份公文可設定簽核路徑（多個關卡，各有單位／職稱與會簽人），送核後逐關核章，全部通過才核定；任一關退回即回到承辦人並記錄退回意見。未設定路徑時則採單關「核定」。
 - **簽核流程**：草稿 → 陳核中（逐關會簽）→ 已核定／已退回 → 已發文 → 已歸檔，每個動作均記錄處理歷程與批示意見。
 - **列印套表 / 匯出 PDF**：以標準公文紙格式（含會簽欄、決行欄）開啟列印視窗；於列印對話框選擇「另存為 PDF」即可匯出。
+- **登入與權限分級**：帳號登入（Session Cookie），分 系統管理員／文書／主管／承辦人 四種角色，依角色控管建立、簽核、發文、歸檔、附件、稽核等權限。
+- **附件上傳**：每份公文可上傳附件（單檔上限 10MB），支援下載與移除；附件實體存於 `data/attachments/`。
+- **稽核軌跡**：自動記錄登入、公文建立／修改／刪除、各簽核動作、附件異動等操作（操作者、角色、時間、對象、來源 IP），管理員可檢視並匯出 CSV（含 BOM，Excel 可正確顯示中文）。
 - **搜尋與篩選**：可依關鍵字（主旨／文號／受文者／來文者／承辦人）、收發別、狀態、類別過濾。
 - **儀表板統計**：即時顯示公文總數、收發數量與各狀態數量。
+
+## 帳號與權限
+
+系統首次啟動會自動建立預設帳號（**請於正式環境盡速修改密碼**）：
+
+| 帳號 | 密碼 | 角色 | 主要權限 |
+| --- | --- | --- | --- |
+| `admin` | `admin123` | 系統管理員 | 全部權限 + 稽核軌跡 |
+| `clerk` | `clerk123` | 文書 | 建立、送核、發文、歸檔、附件 |
+| `boss` | `boss123` | 主管 | 核章、核定、退回 |
+| `staff` | `staff123` | 承辦人 | 建立、送核、附件 |
+
+> 公文的編輯／刪除／附件移除限**承辦人本人或管理員**。採會簽流程者，主管須逐關「核章」。
 
 ## 快速開始
 
@@ -44,30 +60,52 @@ node server.js
 
 ## API 一覽
 
+> 除登入相關端點外，所有 API 均需登入（Session Cookie）。
+
 | 方法 | 路徑 | 說明 |
 | --- | --- | --- |
-| GET | `/api/meta` | 取得類別、速別、密等、狀態、動作定義 |
+| POST | `/api/login` | 登入 `{ username, password }`，回傳使用者並設定 Cookie |
+| POST | `/api/logout` | 登出 |
+| GET | `/api/me` | 取得目前登入者（含權限 `caps`），未登入回 401 |
+| GET | `/api/meta` | 取得類別、速別、密等、狀態、動作、角色定義 |
 | GET | `/api/stats` | 取得統計數據 |
 | GET | `/api/documents` | 列出公文，支援 `?q=&status=&type=&direction=` |
-| POST | `/api/documents` | 建立公文 |
+| POST | `/api/documents` | 建立公文（需 `create` 權限） |
 | GET | `/api/documents/:id` | 取得單一公文 |
-| PUT | `/api/documents/:id` | 編輯公文（限草稿／退回） |
-| DELETE | `/api/documents/:id` | 刪除公文 |
-| POST | `/api/documents/:id/action` | 執行簽核動作 `{ action, actor, note }` |
+| PUT | `/api/documents/:id` | 編輯公文（限草稿／退回，限承辦人或管理員） |
+| DELETE | `/api/documents/:id` | 刪除公文（限承辦人或管理員） |
+| POST | `/api/documents/:id/action` | 執行簽核動作 `{ action, actor, note }`（依角色檢核） |
+| POST | `/api/documents/:id/attachments` | 上傳附件 `{ filename, data(dataURL) }` |
+| GET | `/api/documents/:id/attachments/:attId` | 下載附件 |
+| DELETE | `/api/documents/:id/attachments/:attId` | 移除附件（限承辦人或管理員） |
+| GET | `/api/audit` | 稽核軌跡列表（限管理員），支援 `?limit=` |
+| GET | `/api/audit/export` | 匯出稽核軌跡 CSV（限管理員） |
 
 ## 專案結構
 
 ```
 document-App/
-├── server.js          # HTTP 伺服器 + REST API（標準函式庫）
+├── server.js          # HTTP 伺服器 + REST API 路由
+├── lib/
+│   ├── db.js          # JSON 檔案儲存層
+│   ├── auth.js        # 使用者、角色權限、Session
+│   ├── audit.js       # 稽核軌跡與 CSV 匯出
+│   └── attachments.js # 附件存取
 ├── package.json
-├── data/              # 執行時公文資料（documents.json）
+├── data/              # 執行時資料（不進版控）
+│   ├── documents.json
+│   ├── users.json     # 含密碼雜湊
+│   ├── audit.json
+│   └── attachments/   # 附件檔案
 └── public/            # 前端
     ├── index.html
     ├── styles.css
     └── app.js
 ```
 
-## 資料儲存
+## 資料儲存與安全性
 
-公文資料儲存於 `data/documents.json`（已加入 `.gitignore`，不會進版控）。如需備份或遷移，複製此檔即可。
+- 所有執行時資料存於 `data/`，已整個加入 `.gitignore`（含使用者密碼雜湊、稽核軌跡、附件），不會進版控。備份／遷移時複製整個 `data/` 目錄即可。
+- 密碼以 scrypt 加鹽雜湊儲存，不存明文。
+- Session 以伺服器記憶體維護（重啟即失效），透過 HttpOnly Cookie 識別，預設有效 12 小時。
+- 此為輕量示範系統；若部署於正式環境，建議置於 HTTPS 反向代理之後，並修改預設帳號密碼。

@@ -218,3 +218,52 @@ main { padding: 0 28px 40px; }
 .mini-table th { background: #eef2f7; color: var(--muted); font-weight: 600; }
 
 .action-bar .spacer { flex: 1; }
+
+/* 登入畫面 */
+.login-screen {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+}
+.login-box {
+  background: #fff; border-radius: 12px; padding: 32px 30px; width: 340px;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.3); text-align: center;
+}
+.login-logo { font-size: 46px; }
+.login-box h1 { margin: 6px 0 2px; font-size: 22px; letter-spacing: 3px; }
+.login-sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+.login-box label { display: block; text-align: left; font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 14px; }
+.login-box label input {
+  display: block; width: 100%; margin-top: 5px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;
+}
+.login-btn { width: 100%; padding: 11px; font-size: 15px; margin-top: 4px; }
+.login-hint { margin: 16px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.login-error { text-align: left; }
+
+/* 頂列使用者區 */
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.user-chip {
+  color: #fff; font-size: 13px; padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.18); border-radius: 14px; white-space: nowrap;
+}
+.btn-ghost { background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.5); }
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* 附件 */
+.attach-view { margin-bottom: 18px; }
+.attach-view h4 { margin: 4px 0 8px; font-size: 14px; color: var(--muted); }
+.attach-list { list-style: none; padding: 0; margin: 0 0 10px; }
+.attach-list li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.attach-list a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.attach-list a:hover { text-decoration: underline; }
+.att-meta { color: var(--muted); font-size: 12px; }
+.att-empty { color: var(--muted); border: none !important; }
+.att-del { margin-left: auto; border: 1px solid #e3b6b1; color: var(--danger); background: #fff; border-radius: 5px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.att-del:hover { background: #fbecea; }
+.attach-upload { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.attach-upload input[type="file"] { font-size: 13px; }
+
+#modal-audit .modal-head > div { display: flex; align-items: center; gap: 12px; }
+#audit-table { font-size: 12.5px; }
+#audit-table .empty { text-align: center; color: var(--muted); padding: 24px; }
