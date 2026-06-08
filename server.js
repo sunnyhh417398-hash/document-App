@@ -868,12 +868,26 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
+// 啟動伺服器（供 CLI 與 Electron 主程序共用）。
+// port 傳 0 可取得系統指派的可用埠；回傳 Promise<{ port, ... }>。
+function start(port = PORT, host = HOST) {
   auth.seedUsers();
   templates.seed();
-  server.listen(PORT, HOST, () => {
-    console.log(`公文系統已啟動： http://localhost:${PORT}`);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => {
+      const addr = server.address();
+      console.log(`公文系統已啟動： http://localhost:${addr.port}`);
+      resolve(addr);
+    });
   });
 }
 
-module.exports = { server, ACTIONS, STATUS, nextNumber };
+if (require.main === module) {
+  start().catch((err) => {
+    console.error('啟動失敗：', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { server, start, ACTIONS, STATUS, nextNumber };

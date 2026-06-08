@@ -2,5 +2,7 @@ node_modules/
 # 執行時資料（含使用者密碼雜湊、稽核軌跡、附件），不進版控
 data/*
 !data/.gitkeep
+# 桌面應用打包輸出
+dist/
 *.log
 .DS_Store

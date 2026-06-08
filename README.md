@@ -63,6 +63,36 @@ node server.js
 
 可用環境變數 `PORT` 指定埠號，例如 `PORT=8080 node server.js`。
 
+## 打包成桌面應用程式
+
+本專案可打包為 Windows／macOS／Linux 的桌面應用程式（以 Electron 包裝，內建啟動伺服器並開啟視窗，重用既有功能）。
+
+### 方式一：產生安裝檔（Electron）
+
+> 打包需安裝相依套件（會下載 Electron），請在有網路的本機執行。建議在目標作業系統上打包（例如要做 Windows `.exe` 就在 Windows 上執行）。
+
+```bash
+npm install          # 安裝 electron / electron-builder
+npm run electron     # 直接以桌面視窗試跑（開發用）
+npm run dist         # 產生目前作業系統的安裝檔，輸出於 dist/
+```
+
+指定平台：`npm run dist:win`（Windows `.exe` 安裝檔）、`npm run dist:mac`（macOS `.dmg`）、`npm run dist:linux`（`AppImage` / `.deb`）。
+
+- 資料儲存於使用者資料夾（不會寫入安裝目錄）：
+  - Windows：`%APPDATA%/公文系統/data`
+  - macOS：`~/Library/Application Support/公文系統/data`
+  - Linux：`~/.config/公文系統/data`
+- 應用程式選單「檔案 → 開啟資料夾」可開啟上述資料目錄以備份。
+- 圖示（選填）：將 `build/icon.svg` 轉為 512×512 的 `build/icon.png`（Windows 另需 `build/icon.ico`）放入 `build/`；未提供則使用 Electron 預設圖示。
+
+### 方式二：免打包啟動器（需已安裝 Node.js）
+
+不想打包安裝檔時，可直接用啟動器：啟動伺服器並開啟瀏覽器。
+
+- Windows：雙擊 `scripts/start-app.bat`
+- macOS／Linux：執行 `scripts/start-app.sh`（或 `bash scripts/start-app.sh`）
+
 ### Email 通知設定（選填）
 
 未設定 SMTP 時，通知信會寫入 `data/outbox/`（`.eml` 檔）以供檢視，站內通知仍正常運作。若要實際寄出，設定以下環境變數：
@@ -129,7 +159,14 @@ node server.js
 
 ```
 document-App/
-├── server.js          # HTTP 伺服器 + REST API 路由
+├── server.js          # HTTP 伺服器 + REST API 路由（export start()）
+├── electron/
+│   └── main.js        # Electron 主程序（桌面視窗 + 內建伺服器）
+├── scripts/
+│   ├── start-app.sh   # 免打包啟動器（macOS / Linux）
+│   └── start-app.bat  # 免打包啟動器（Windows）
+├── build/
+│   └── icon.svg       # 應用程式圖示來源
 ├── lib/
 │   ├── db.js            # JSON 檔案儲存層
 │   ├── auth.js          # 使用者、角色權限、Session
