@@ -24,6 +24,7 @@ const DATA_FILE = path.join(DATA_DIR, 'documents.json');
 const DOC_TYPES = ['函', '令', '公告', '簽', '書函', '開會通知單'];
 const PRIORITIES = ['普通件', '速件', '最速件'];
 const CLASSIFICATIONS = ['普通', '密', '機密', '極機密'];
+const DIRECTIONS = ['發文', '收文']; // 收發分流
 
 // 公文狀態流轉。每個狀態可執行的動作 → 目標狀態。
 const STATUS = {
@@ -36,8 +37,10 @@ const STATUS = {
 };
 
 // action -> { from: [...], to, label }
+// sign（核章）為會簽多關卡使用，目標狀態依關卡動態決定，故 to 為 null。
 const ACTIONS = {
   submit: { from: ['draft', 'returned'], to: 'pending', label: '送核' },
+  sign: { from: ['pending'], to: null, label: '核章' },
   approve: { from: ['pending'], to: 'approved', label: '核定' },
   reject: { from: ['pending'], to: 'returned', label: '退回' },
   dispatch: { from: ['approved'], to: 'dispatched', label: '發文' },
@@ -66,16 +69,34 @@ function writeAll(docs) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(docs, null, 2));
 }
 
-// 產生文號：民國年度 + 機關代字 + 流水號，例如 115-總字第0001號
-function nextDocNumber(docs) {
+// 收發分流文號：收文用「收」、發文用「發」，各自獨立流水號。
+// 例：收-115-字第0001號 / 發-115-字第0001號
+function nextNumber(docs, direction) {
   const rocYear = new Date().getFullYear() - 1911;
-  const yearDocs = docs.filter((d) => d.docNumber && d.docNumber.startsWith(String(rocYear)));
-  const seq = yearDocs.length + 1;
-  return `${rocYear}-字第${String(seq).padStart(4, '0')}號`;
+  const prefix = direction === '收文' ? '收' : '發';
+  const head = `${prefix}-${rocYear}-`;
+  const seq = docs.filter((d) => d.docNumber && d.docNumber.startsWith(head)).length + 1;
+  return `${head}字第${String(seq).padStart(4, '0')}號`;
 }
 
 function nowISO() {
   return new Date().toISOString();
+}
+
+// 整理會簽路徑：每一關卡含單位/職稱與會簽人，並保留簽核結果欄位。
+function sanitizeRoute(route) {
+  if (!Array.isArray(route)) return [];
+  return route
+    .filter((s) => s && (String(s.role || '').trim() || String(s.assignee || '').trim()))
+    .map((s, i) => ({
+      seq: i + 1,
+      role: String(s.role || '').trim(),
+      assignee: String(s.assignee || '').trim(),
+      decision: null, // 'approve' | 'reject' | null
+      actor: '',
+      note: '',
+      at: '',
+    }));
 }
 
 // ---- 驗證 --------------------------------------------------------------------
@@ -87,6 +108,7 @@ function validateDocInput(body) {
   }
   if (!body.subject || !String(body.subject).trim()) errors.push('主旨為必填');
   if (body.type && !DOC_TYPES.includes(body.type)) errors.push('公文類別不正確');
+  if (body.direction && !DIRECTIONS.includes(body.direction)) errors.push('收發別不正確');
   if (body.priority && !PRIORITIES.includes(body.priority)) errors.push('速別不正確');
   if (body.classification && !CLASSIFICATIONS.includes(body.classification)) {
     errors.push('密等不正確');
@@ -96,7 +118,12 @@ function validateDocInput(body) {
 
 function sanitizeDoc(body, existing) {
   const base = existing || {};
+  const direction = DIRECTIONS.includes(body.direction)
+    ? body.direction
+    : base.direction || '發文';
+  const isIncoming = direction === '收文';
   return {
+    direction,
     type: body.type || base.type || '函',
     subject: String(body.subject ?? base.subject ?? '').trim(),
     priority: body.priority || base.priority || '普通件',
@@ -105,6 +132,11 @@ function sanitizeDoc(body, existing) {
     recipient: String(body.recipient ?? base.recipient ?? '').trim(),
     body: String(body.body ?? base.body ?? '').trim(),
     handler: String(body.handler ?? base.handler ?? '').trim(),
+    route: body.route !== undefined ? sanitizeRoute(body.route) : base.route || [],
+    // 收文專屬欄位
+    incomingFrom: isIncoming ? String(body.incomingFrom ?? base.incomingFrom ?? '').trim() : '',
+    incomingNumber: isIncoming ? String(body.incomingNumber ?? base.incomingNumber ?? '').trim() : '',
+    incomingDate: isIncoming ? String(body.incomingDate ?? base.incomingDate ?? '').trim() : '',
   };
 }
 
@@ -184,6 +216,7 @@ async function handleApi(req, res, url) {
       docTypes: DOC_TYPES,
       priorities: PRIORITIES,
       classifications: CLASSIFICATIONS,
+      directions: DIRECTIONS,
       statuses: STATUS,
       actions: ACTIONS,
     });
@@ -194,10 +227,12 @@ async function handleApi(req, res, url) {
     const docs = readAll();
     const byStatus = {};
     Object.keys(STATUS).forEach((s) => (byStatus[s] = 0));
+    const byDirection = { 發文: 0, 收文: 0 };
     docs.forEach((d) => {
       byStatus[d.status] = (byStatus[d.status] || 0) + 1;
+      if (byDirection[d.direction] !== undefined) byDirection[d.direction] += 1;
     });
-    return sendJSON(res, 200, { total: docs.length, byStatus });
+    return sendJSON(res, 200, { total: docs.length, byStatus, byDirection });
   }
 
   if (resource !== 'documents') {
@@ -214,15 +249,17 @@ async function handleApi(req, res, url) {
       const q = (url.searchParams.get('q') || '').trim().toLowerCase();
       const status = url.searchParams.get('status');
       const type = url.searchParams.get('type');
+      const direction = url.searchParams.get('direction');
       if (q) {
         docs = docs.filter((d) =>
-          [d.subject, d.docNumber, d.sender, d.recipient, d.handler, d.body]
+          [d.subject, d.docNumber, d.sender, d.recipient, d.handler, d.body, d.incomingFrom]
             .filter(Boolean)
             .some((f) => String(f).toLowerCase().includes(q))
         );
       }
       if (status) docs = docs.filter((d) => d.status === status);
       if (type) docs = docs.filter((d) => d.type === type);
+      if (direction) docs = docs.filter((d) => d.direction === direction);
       docs.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
       return sendJSON(res, 200, docs);
     }
@@ -233,15 +270,25 @@ async function handleApi(req, res, url) {
       if (errors.length) return sendJSON(res, 400, { error: errors.join('；') });
       const docs = readAll();
       const clean = sanitizeDoc(body);
+      // 收發分流：收文於登記（建立）時即編收文號；發文待「發文」動作時才編發文號。
+      const isIncoming = clean.direction === '收文';
+      const docNumber = isIncoming ? nextNumber(docs, '收文') : null;
       const doc = {
         id: crypto.randomUUID(),
-        docNumber: nextDocNumber(docs),
+        docNumber,
         ...clean,
+        currentStage: null, // 會簽進行中的關卡索引
         status: 'draft',
         createdAt: nowISO(),
         updatedAt: nowISO(),
         history: [
-          { action: 'create', label: '建立草稿', actor: clean.handler || '系統', note: '', at: nowISO() },
+          {
+            action: 'create',
+            label: isIncoming ? '收文登記' : '建立草稿',
+            actor: clean.handler || '系統',
+            note: docNumber ? `編列收文號 ${docNumber}` : '',
+            at: nowISO(),
+          },
         ],
       };
       docs.push(doc);
@@ -263,22 +310,108 @@ async function handleApi(req, res, url) {
     const actionKey = body.action;
     const def = ACTIONS[actionKey];
     if (!def) return sendJSON(res, 400, { error: '不支援的動作' });
-    if (!def.from.includes(docs[idx].status)) {
+
+    const doc = docs[idx];
+    if (!def.from.includes(doc.status)) {
       return sendJSON(res, 409, {
-        error: `目前狀態「${STATUS[docs[idx].status]}」無法執行「${def.label}」`,
+        error: `目前狀態「${STATUS[doc.status]}」無法執行「${def.label}」`,
       });
     }
-    docs[idx].status = def.to;
-    docs[idx].updatedAt = nowISO();
-    docs[idx].history.push({
-      action: actionKey,
-      label: def.label,
-      actor: String(body.actor || '').trim() || '未具名',
-      note: String(body.note || '').trim(),
-      at: nowISO(),
-    });
+
+    const actor = String(body.actor || '').trim() || '未具名';
+    const note = String(body.note || '').trim();
+    const hasRoute = Array.isArray(doc.route) && doc.route.length > 0;
+    let label = def.label;
+    let appliedNote = note;
+
+    switch (actionKey) {
+      case 'submit': {
+        // 送核：若有會簽路徑，重置各關卡並由第一關開始。
+        if (hasRoute) {
+          doc.route.forEach((s) => {
+            s.decision = null;
+            s.actor = '';
+            s.note = '';
+            s.at = '';
+          });
+          doc.currentStage = 0;
+          label = `送核（會簽 ${doc.route.length} 關）`;
+        }
+        doc.status = 'pending';
+        break;
+      }
+
+      case 'sign': {
+        // 會簽核章：對目前關卡蓋章後前進；最後一關通過即核定。
+        if (!hasRoute) {
+          return sendJSON(res, 409, { error: '本公文未設定會簽路徑，請改用「核定」' });
+        }
+        const i = doc.currentStage ?? 0;
+        const stage = doc.route[i];
+        stage.decision = 'approve';
+        stage.actor = actor;
+        stage.note = note;
+        stage.at = nowISO();
+        const stageName = `第${i + 1}關${stage.role ? `（${stage.role}）` : ''}`;
+        if (i >= doc.route.length - 1) {
+          doc.status = 'approved';
+          doc.currentStage = null;
+          label = `${stageName}核章，會簽完成核定`;
+        } else {
+          doc.currentStage = i + 1;
+          label = `${stageName}核章`;
+        }
+        break;
+      }
+
+      case 'approve': {
+        if (hasRoute) {
+          return sendJSON(res, 409, { error: '本公文採會簽流程，請逐關使用「核章」' });
+        }
+        doc.status = 'approved';
+        break;
+      }
+
+      case 'reject': {
+        // 退回：會簽中於目前關卡記錄退回。
+        if (hasRoute && doc.currentStage != null) {
+          const stage = doc.route[doc.currentStage];
+          stage.decision = 'reject';
+          stage.actor = actor;
+          stage.note = note;
+          stage.at = nowISO();
+          label = `第${doc.currentStage + 1}關退回`;
+        }
+        doc.currentStage = null;
+        doc.status = 'returned';
+        break;
+      }
+
+      case 'dispatch': {
+        // 發文：僅發文公文適用，於此時編列發文號。
+        if (doc.direction !== '發文') {
+          return sendJSON(res, 409, { error: '僅「發文」公文可執行發文編號' });
+        }
+        if (!doc.docNumber) {
+          doc.docNumber = nextNumber(docs, '發文');
+          appliedNote = appliedNote
+            ? `${appliedNote}（編列發文號 ${doc.docNumber}）`
+            : `編列發文號 ${doc.docNumber}`;
+        }
+        doc.status = 'dispatched';
+        break;
+      }
+
+      default: {
+        // archive 等單純狀態轉換
+        doc.status = def.to;
+      }
+    }
+
+    doc.updatedAt = nowISO();
+    doc.history.push({ action: actionKey, label, actor, note: appliedNote, at: nowISO() });
     writeAll(docs);
-    return sendJSON(res, 200, docs[idx]);
+    return sendJSON(res, 200, doc);
   }
 
   if (req.method === 'GET') {
@@ -294,6 +427,13 @@ async function handleApi(req, res, url) {
     if (errors.length) return sendJSON(res, 400, { error: errors.join('；') });
     const clean = sanitizeDoc(body, docs[idx]);
     docs[idx] = { ...docs[idx], ...clean, updatedAt: nowISO() };
+    // 草稿階段若切換收發別，重新對應文號（收文即時編號、發文待發文時編號）。
+    const cur = docs[idx];
+    if (clean.direction === '收文' && (!cur.docNumber || !cur.docNumber.startsWith('收-'))) {
+      cur.docNumber = nextNumber(docs, '收文');
+    } else if (clean.direction === '發文' && cur.docNumber && cur.docNumber.startsWith('收-')) {
+      cur.docNumber = null;
+    }
     docs[idx].history.push({ action: 'update', label: '修改內容', actor: clean.handler || '系統', note: '', at: nowISO() });
     writeAll(docs);
     return sendJSON(res, 200, docs[idx]);
@@ -331,4 +471,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, ACTIONS, STATUS, nextDocNumber };
+module.exports = { server, ACTIONS, STATUS, nextNumber };

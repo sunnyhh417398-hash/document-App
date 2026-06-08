@@ -189,3 +189,32 @@ main { padding: 0 28px 40px; }
 }
 .toast.show { opacity: 1; bottom: 34px; }
 .toast.error { background: var(--danger); }
+
+/* 收發別徽章 */
+.dir { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.dir-out { background: #e1edfb; color: #1f5fa6; }
+.dir-in { background: #fdeede; color: #b5740a; }
+
+/* 表單區塊：來文資訊 / 會簽路徑 */
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.subform {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px 4px; margin: 4px 0 16px; background: #fafbfc;
+}
+.subform legend { font-size: 13px; font-weight: 700; color: var(--primary); padding: 0 6px; }
+.subform .hint, .hint { font-size: 12px; color: var(--muted); margin: 4px 0 10px; }
+.btn-sm { padding: 5px 12px; font-size: 13px; }
+
+.route-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.route-row .r-role { flex: 1.2; }
+.route-row .r-assignee { flex: 1; }
+.route-row input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+
+/* 會簽進度表 / 列印共用迷你表 */
+.route-view { margin-bottom: 18px; }
+.route-view h4, .history h4 { margin: 4px 0 8px; font-size: 14px; color: var(--muted); }
+.mini-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mini-table th, .mini-table td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+.mini-table th { background: #eef2f7; color: var(--muted); font-weight: 600; }
+
+.action-bar .spacer { flex: 1; }

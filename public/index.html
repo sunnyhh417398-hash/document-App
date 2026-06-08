@@ -22,6 +22,7 @@
 
   <section class="toolbar">
     <input type="search" id="search" placeholder="搜尋主旨 / 文號 / 受文者 / 承辦人…" />
+    <select id="filter-direction"><option value="">收發別</option></select>
     <select id="filter-status"><option value="">全部狀態</option></select>
     <select id="filter-type"><option value="">全部類別</option></select>
   </section>
@@ -30,12 +31,12 @@
     <table class="doc-table">
       <thead>
         <tr>
-          <th>文號</th><th>類別</th><th>主旨</th><th>受文者</th>
+          <th>文號</th><th>文向</th><th>類別</th><th>主旨</th><th>受文者／來文者</th>
           <th>速別</th><th>承辦人</th><th>狀態</th><th>更新時間</th>
         </tr>
       </thead>
       <tbody id="doc-list">
-        <tr><td colspan="8" class="empty">載入中…</td></tr>
+        <tr><td colspan="9" class="empty">載入中…</td></tr>
       </tbody>
     </table>
   </main>
@@ -50,21 +51,45 @@
       <form id="doc-form" class="modal-body">
         <input type="hidden" id="f-id" />
         <div class="grid">
+          <label>收發別<select id="f-direction"></select></label>
           <label>公文類別<select id="f-type"></select></label>
           <label>速別<select id="f-priority"></select></label>
-          <label>密等<select id="f-classification"></select></label>
         </div>
+        <div class="grid">
+          <label>密等<select id="f-classification"></select></label>
+          <label>承辦人<input type="text" id="f-handler" placeholder="姓名" /></label>
+          <label></label>
+        </div>
+
+        <!-- 收文專屬欄位 -->
+        <fieldset id="incoming-fields" class="subform" hidden>
+          <legend>來文資訊</legend>
+          <div class="grid">
+            <label>來文機關<input type="text" id="f-incomingFrom" placeholder="來文機關 / 單位" /></label>
+            <label>來文字號<input type="text" id="f-incomingNumber" placeholder="對方發文字號" /></label>
+            <label>來文日期<input type="date" id="f-incomingDate" /></label>
+          </div>
+        </fieldset>
+
         <label>主旨 <span class="req">*</span>
           <input type="text" id="f-subject" required maxlength="200" placeholder="例：函送本年度預算執行報告" />
         </label>
-        <div class="grid">
+        <div class="grid grid-2">
           <label>發文者<input type="text" id="f-sender" placeholder="發文機關 / 單位" /></label>
           <label>受文者<input type="text" id="f-recipient" placeholder="收文機關 / 單位" /></label>
         </div>
         <label>本文 / 說明
           <textarea id="f-body" rows="6" placeholder="一、…&#10;二、…"></textarea>
         </label>
-        <label>承辦人<input type="text" id="f-handler" placeholder="姓名" /></label>
+
+        <!-- 會簽多關卡 -->
+        <fieldset class="subform">
+          <legend>會簽路徑（可選，逐關核章）</legend>
+          <div id="route-rows"></div>
+          <button type="button" class="btn btn-sm" id="btn-add-stage">＋ 新增關卡</button>
+          <p class="hint">未設定關卡時採單關「核定」；設定後須逐關核章方可核定。</p>
+        </fieldset>
+
         <p class="form-error" id="form-error" hidden></p>
         <div class="modal-foot">
           <button type="button" class="btn" data-close>取消</button>
