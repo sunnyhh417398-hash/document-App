@@ -968,18 +968,29 @@ async function onLogin(e) {
   e.preventDefault();
   const errEl = $('#login-error');
   errEl.hidden = true;
+  let data;
   try {
-    const data = await api('POST', '/api/login', {
+    data = await api('POST', '/api/login', {
       username: $('#login-username').value.trim(),
       password: $('#login-password').value,
     });
-    setToken(data.token); // 改用 token 標頭維持登入
-    ME = data;
-    $('#login-password').value = '';
+  } catch (err) {
+    // 帳號/密碼或連線錯誤
+    errEl.textContent = err.message;
+    errEl.hidden = false;
+    return;
+  }
+  // 驗證成功，改用 token 標頭維持登入
+  setToken(data.token);
+  ME = data;
+  $('#login-password').value = '';
+  try {
     showApp();
     await init();
   } catch (err) {
-    errEl.textContent = err.message;
+    // 登入成功但載入失敗：退回登入畫面並顯示真正的錯誤，方便診斷
+    showLogin();
+    errEl.textContent = '登入後載入失敗：' + err.message;
     errEl.hidden = false;
   }
 }
@@ -991,15 +1002,35 @@ async function onLogout() {
   location.reload();
 }
 
+// 全域錯誤攔截：打包版沒有可見的主控台，將未捕捉的錯誤顯示於畫面上方
+function showFatal(msg) {
+  let bar = document.getElementById('fatal-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'fatal-bar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:10px 16px;font-size:13px;font-family:sans-serif;white-space:pre-wrap;';
+    document.body.appendChild(bar);
+  }
+  bar.textContent = '發生錯誤：' + msg + '（可按 Ctrl+Shift+I 開啟主控台查看細節）';
+}
+window.addEventListener('error', (ev) => showFatal(ev.message || String(ev.error || '')));
+window.addEventListener('unhandledrejection', (ev) =>
+  showFatal((ev.reason && (ev.reason.message || ev.reason)) || '未處理的錯誤'));
+
 async function boot() {
-  $('#login-form').addEventListener('submit', onLogin);
-  $('#btn-logout').addEventListener('click', onLogout);
   try {
-    ME = await api('GET', '/api/me');
+    $('#login-form').addEventListener('submit', onLogin);
+    $('#btn-logout').addEventListener('click', onLogout);
+  } catch (err) {
+    showFatal('初始化登入畫面失敗：' + err.message);
+    return;
+  }
+  try {
+    ME = await api('GET', '/api/me'); // 有有效 token 才會成功
     showApp();
     await init();
   } catch (err) {
-    showLogin();
+    showLogin(); // 未登入屬正常情況
   }
 }
 
