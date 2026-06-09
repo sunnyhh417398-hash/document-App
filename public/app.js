@@ -5,6 +5,8 @@ let META = { docTypes: [], priorities: [], classifications: [], directions: [], 
 let ME = null; // 目前登入者 { id, name, role, roleLabel, caps }
 let TEMPLATES = [];
 let LAST_QUERY = '';
+let TOKEN = null;
+try { TOKEN = localStorage.getItem('docapp_token'); } catch (e) { /* 隱私模式忽略 */ }
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -12,8 +14,20 @@ function can(cap) { return !!(ME && ME.caps && ME.caps.includes(cap)); }
 function isOwner(doc) { return ME && (ME.role === 'admin' || doc.createdBy === ME.id); }
 
 // ---- API ----
+function authHeaders() {
+  return TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {};
+}
+
+function setToken(t) {
+  TOKEN = t || null;
+  try {
+    if (TOKEN) localStorage.setItem('docapp_token', TOKEN);
+    else localStorage.removeItem('docapp_token');
+  } catch (e) { /* 忽略 */ }
+}
+
 async function api(method, url, body) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: Object.assign({}, authHeaders()) };
   if (body) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -22,6 +36,25 @@ async function api(method, url, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `請求失敗 (${res.status})`);
   return data;
+}
+
+// 以 token 標頭下載檔案（不依賴 Cookie），存成本機檔案
+async function downloadAuthed(url, filename) {
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    let msg = `下載失敗 (${res.status})`;
+    try { msg = (await res.json()).error || msg; } catch (e) { /* 忽略 */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = filename || '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 1500);
 }
 
 // ---- 工具 ----
@@ -135,7 +168,12 @@ async function init() {
 
   $('#btn-new').addEventListener('click', () => openEdit());
   $('#btn-audit').addEventListener('click', openAudit);
-  $('#btn-audit-export').addEventListener('click', () => { window.location = '/api/audit/export'; });
+  $('#btn-audit-export').addEventListener('click', async () => {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      await downloadAuthed('/api/audit/export', `audit-${stamp}.csv`);
+    } catch (err) { toast(err.message, true); }
+  });
   $('#btn-users').addEventListener('click', openUsers);
   $('#btn-password').addEventListener('click', openPassword);
   $('#password-form').addEventListener('submit', onChangePassword);
@@ -472,7 +510,7 @@ async function openView(id) {
 function renderAttachments(d) {
   const list = (d.attachments || [])
     .map((a) => `<li>
-      <a href="/api/documents/${d.id}/attachments/${a.id}" target="_blank" rel="noopener">📎 ${esc(a.filename)}</a>
+      <a href="#" class="att-dl" data-att="${a.id}" data-fn="${esc(a.filename)}">📎 ${esc(a.filename)}</a>
       <span class="att-meta">${fmtKB(a.size)} · ${esc(a.uploadedBy)} · ${fmtTime(a.uploadedAt)}</span>
       ${isOwner(d) ? `<button class="att-del" data-att="${a.id}">移除</button>` : ''}
     </li>`)
@@ -495,6 +533,13 @@ function fmtKB(bytes) {
 }
 
 function bindAttachments(d) {
+  $$('#view-body .att-dl').forEach((a) =>
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await downloadAuthed(`/api/documents/${d.id}/attachments/${a.dataset.att}`, a.dataset.fn); }
+      catch (err) { toast(err.message, true); }
+    })
+  );
   $$('#view-body .att-del').forEach((b) =>
     b.addEventListener('click', () => deleteAttachment(d.id, b.dataset.att))
   );
@@ -924,10 +969,12 @@ async function onLogin(e) {
   const errEl = $('#login-error');
   errEl.hidden = true;
   try {
-    ME = await api('POST', '/api/login', {
+    const data = await api('POST', '/api/login', {
       username: $('#login-username').value.trim(),
       password: $('#login-password').value,
     });
+    setToken(data.token); // 改用 token 標頭維持登入
+    ME = data;
     $('#login-password').value = '';
     showApp();
     await init();
@@ -940,6 +987,7 @@ async function onLogin(e) {
 async function onLogout() {
   try { await api('POST', '/api/logout'); } catch (e) { /* 忽略 */ }
   ME = null;
+  setToken(null);
   location.reload();
 }
 

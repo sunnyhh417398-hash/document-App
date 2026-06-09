@@ -274,12 +274,13 @@ async function handleAuthRoutes(req, res, url, user) {
     const token = auth.createSession(u);
     recordAudit(req, auth.publicUser(u), '登入成功', null, '');
     const cookie = `sid=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=43200`;
-    return sendJSON(res, 200, auth.publicUser(u), { 'Set-Cookie': cookie });
+    // 同時回傳 token，前端以 Authorization 標頭帶入後續請求（不依賴 Cookie）
+    return sendJSON(res, 200, Object.assign(auth.publicUser(u), { token }), { 'Set-Cookie': cookie });
   }
 
   if (resource === 'logout' && req.method === 'POST') {
     recordAudit(req, user, '登出', null, '');
-    auth.destroySession(auth.parseCookies(req).sid);
+    auth.destroySession(auth.tokenFromReq(req));
     return sendJSON(res, 200, { ok: true }, { 'Set-Cookie': 'sid=; HttpOnly; Path=/; Max-Age=0' });
   }
 
