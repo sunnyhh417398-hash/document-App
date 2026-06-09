@@ -965,15 +965,19 @@ function showApp() {
 }
 
 async function onLogin(e) {
-  e.preventDefault();
+  if (e && typeof e.preventDefault === 'function') e.preventDefault();
   const errEl = $('#login-error');
   errEl.hidden = true;
+  const username = $('#login-username').value.trim();
+  const password = $('#login-password').value;
+  if (!username || !password) {
+    errEl.textContent = '請輸入帳號與密碼';
+    errEl.hidden = false;
+    return;
+  }
   let data;
   try {
-    data = await api('POST', '/api/login', {
-      username: $('#login-username').value.trim(),
-      password: $('#login-password').value,
-    });
+    data = await api('POST', '/api/login', { username, password });
   } catch (err) {
     // 帳號/密碼或連線錯誤
     errEl.textContent = err.message;
@@ -1019,7 +1023,11 @@ window.addEventListener('unhandledrejection', (ev) =>
 
 async function boot() {
   try {
-    $('#login-form').addEventListener('submit', onLogin);
+    // 同時綁定按鈕點擊與表單送出（Enter），避免任一失效時無法登入
+    const btn = $('#login-btn');
+    if (btn) btn.addEventListener('click', onLogin);
+    const form = $('#login-form');
+    if (form) form.addEventListener('submit', onLogin);
     $('#btn-logout').addEventListener('click', onLogout);
   } catch (err) {
     showFatal('初始化登入畫面失敗：' + err.message);
