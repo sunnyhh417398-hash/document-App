@@ -12,6 +12,9 @@
 
 * { box-sizing: border-box; }
 
+/* 確保 hidden 屬性一定生效（覆蓋 .login-screen / .modal-backdrop 等的 display） */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
