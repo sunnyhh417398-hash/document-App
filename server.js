@@ -265,7 +265,9 @@ async function handleAuthRoutes(req, res, url, user) {
     const u = auth.findByUsername(String(body.username || '').trim());
     if (!u || !auth.verifyPassword(body.password, u.password)) {
       recordAudit(req, u ? auth.publicUser(u) : null, '登入失敗', null, `帳號：${body.username || ''}`);
-      return sendJSON(res, 401, { error: '帳號或密碼錯誤' });
+      // 附帶診斷：目前帳號總數與是否找到該帳號（協助排查資料未初始化）
+      const accounts = (auth.loadUsers() || []).length;
+      return sendJSON(res, 401, { error: '帳號或密碼錯誤', accounts, found: !!u });
     }
     if (u.active === false) {
       recordAudit(req, auth.publicUser(u), '登入遭拒', null, '帳號已停用');
